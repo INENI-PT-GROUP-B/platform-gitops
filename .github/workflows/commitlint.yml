@@ -1,0 +1,9 @@
+name: Commitlint
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    uses: INENI-PT-GROUP-B/.github/.github/workflows/commitlint-reusable.yml@main
