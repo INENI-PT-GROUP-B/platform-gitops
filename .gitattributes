@@ -1,0 +1,2 @@
+# Normalise text files to LF regardless of platform autocrlf settings.
+* text=auto eol=lf
