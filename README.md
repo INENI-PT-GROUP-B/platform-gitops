@@ -9,7 +9,7 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 | Path | Purpose |
 |------|---------|
 | `applications/` | ArgoCD `Application` manifests for platform components |
-| `applicationsets/` | `ApplicationSet` manifests for tenant apps (templated) |
+| `applicationsets/` | Reserved — tenant apps are deployed by Crossplane via `provider-helm`, not via ApplicationSets |
 | `crossplane/providers/` | Crossplane provider configurations |
 | `crossplane/xrds/` | Composite Resource Definitions (XRDs) |
 | `crossplane/compositions/` | Compositions implementing the XRDs |
@@ -20,7 +20,7 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 
 1. ArgoCD runs in the cluster and watches this repo.
 2. Changes merged to `main` are picked up automatically and reconciled.
-3. New tenants are onboarded by adding a claim under `tenants/`, which triggers Crossplane to provision the underlying resources via the matching Composition.
+3. New tenants are onboarded by adding a claim under `tenants/`. ArgoCD syncs the claim into the cluster, then Crossplane reconciles it against the matching Composition — provisioning the per-tenant resources (namespace, DB, network policies, secrets) and rendering the application's Helm chart via `provider-helm` into the tenant namespace.
 
 ## Contributing
 
