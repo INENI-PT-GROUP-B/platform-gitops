@@ -1,0 +1,9 @@
+# CODEOWNERS — every PR to main auto-requests a review from the listed
+# owners. All four team members are owners so that any member can author a
+# PR and any other member can satisfy the review (an author cannot review
+# their own PR). On repos whose "main-protection" ruleset has
+# require_code_owner_review enabled this is a hard gate; on the others it is
+# an automatic reviewer request, not a blocker. See
+# INENI-PT-GROUP-B/platform CONTRIBUTING.md.
+# Tracking: INENI-PT-GROUP-B/platform#61
+* @marco93r @mlexinho27 @prohaskap @ronaldley
