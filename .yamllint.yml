@@ -1,0 +1,15 @@
+extends: default
+
+rules:
+  # GitHub Actions workflows use `on:` as a key; allow it as a string.
+  truthy:
+    allowed-values: ["true", "false", "on", "off"]
+  # Workflow and config files do not start with a document marker.
+  document-start: disable
+  # Keep long lines (URLs, action refs) a warning, not an error.
+  line-length:
+    max: 120
+    level: warning
+
+ignore: |
+  node_modules/

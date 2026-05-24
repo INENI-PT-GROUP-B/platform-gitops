@@ -7,7 +7,7 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 ## Directory Layout
 
 | Path | Purpose |
-|------|---------|
+| ---- | ------- |
 | `applications/` | ArgoCD `Application` manifests for platform components |
 | `applicationsets/` | Reserved — tenant apps are deployed by Crossplane via `provider-helm`, not via ApplicationSets |
 | `crossplane/providers/` | Crossplane provider configurations |
@@ -27,5 +27,6 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 See the org-wide [CONTRIBUTING.md](https://github.com/INENI-PT-GROUP-B/platform/blob/main/CONTRIBUTING.md) for branch naming, commit message format, PR rules, and security requirements.
 
 Key points:
+
 - No direct commits to `main`, all changes via Pull Request
 - Every PR references an issue
