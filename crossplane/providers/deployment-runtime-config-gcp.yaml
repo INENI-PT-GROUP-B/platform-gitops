@@ -1,0 +1,24 @@
+---
+# DeploymentRuntimeConfig for provider-gcp.
+#
+# Pins the provider's controller ServiceAccount to a fixed name and annotates it
+# for GKE Workload Identity, so provider-gcp authenticates to Google Secret
+# Manager as the dedicated GSA without any JSON key.
+#
+# The GSA, its roles/secretmanager.secretVersionAdder binding, and the Workload
+# Identity binding for crossplane-system/provider-gcp are created in platform-iac
+# (terraform/iam). The serviceAccountTemplate name below must stay in sync with
+# the iam module's crossplane_provider_gcp_ksa_name variable (default: provider-gcp).
+#
+# Coordination (S2-09): the provider-gcp Provider must reference this runtime
+# config via spec.runtimeConfigRef.name: provider-gcp.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-gcp
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-gcp
+      annotations:
+        iam.gke.io/gcp-service-account: crossplane-provider-gcp@dotted-axle-495612-f4.iam.gserviceaccount.com

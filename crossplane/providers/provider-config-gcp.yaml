@@ -1,0 +1,15 @@
+---
+# ProviderConfig consumed by provider-gcp managed resources, e.g. the per-tenant
+# BasicAuth htpasswd SecretVersion writes to Google Secret Manager (S3-05).
+#
+# source: InjectedIdentity makes the provider use the Workload-Identity-bound
+# ServiceAccount configured by the DeploymentRuntimeConfig in this directory --
+# no static credentials are mounted.
+apiVersion: gcp.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  projectID: dotted-axle-495612-f4
+  credentials:
+    source: InjectedIdentity

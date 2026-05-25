@@ -1,0 +1,41 @@
+---
+# Argo CD Application syncing the Crossplane provider configuration in this repo
+# (the ProviderConfigs plus the provider-gcp DeploymentRuntimeConfig under
+# crossplane/providers/).
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# objects here depend on the Crossplane provider CRDs installed by the Crossplane
+# install Application (S2-09). SkipDryRunOnMissingResource plus the retry and
+# selfHeal policy let this app converge once those CRDs exist, instead of coupling
+# it to a hard sync-wave. If the team later standardises on sync-waves, this app
+# should run after the Crossplane core + providers install.
+#
+# namespace (argocd), project (default) and repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-providerconfigs
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: crossplane/providers
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true

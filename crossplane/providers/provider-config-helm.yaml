@@ -1,0 +1,14 @@
+---
+# ProviderConfig for provider-helm, used to render each tenant's application Helm
+# release into the tenant namespace (S3-06).
+#
+# source: InjectedIdentity makes the provider act in-cluster as its own controller
+# ServiceAccount. That ServiceAccount needs cluster RBAC to manage releases
+# cluster-wide; the binding is set up with the provider install (S2-09).
+apiVersion: helm.crossplane.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: InjectedIdentity

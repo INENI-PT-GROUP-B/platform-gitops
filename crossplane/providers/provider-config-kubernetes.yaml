@@ -1,0 +1,15 @@
+---
+# ProviderConfig for provider-kubernetes, used to apply the in-cluster Kubernetes
+# objects a tenant Composition renders (namespace, network policies, quotas,
+# ExternalSecrets, Traefik Middleware).
+#
+# source: InjectedIdentity makes the provider act in-cluster as its own controller
+# ServiceAccount. That ServiceAccount needs cluster RBAC for those objects; the
+# binding is set up with the provider install (S2-09).
+apiVersion: kubernetes.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: default
+spec:
+  credentials:
+    source: InjectedIdentity
