@@ -1,0 +1,43 @@
+---
+# Argo CD Application deploying the upstream ExternalDNS Helm chart with the
+# platform values in values/externaldns.yaml. Multi-source: the chart comes from
+# its Helm repo, the values file from this git repo via the $values ref.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The chart
+# version is pinned per the CI/tooling version-pinning convention; upgrades go
+# through an explicit PR.
+#
+# namespace (argocd), project (default) and the git repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: externaldns
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/external-dns/
+      chart: external-dns
+      targetRevision: 1.21.1
+      helm:
+        valueFiles:
+          - $values/values/externaldns.yaml
+    - repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
