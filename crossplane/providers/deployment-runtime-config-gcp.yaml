@@ -21,4 +21,6 @@ spec:
     metadata:
       name: provider-gcp
       annotations:
+        # The GSA email couples to the iam module's crossplane_provider_gcp_sa_id
+        # and project_id; keep both in sync with terraform/iam if either changes.
         iam.gke.io/gcp-service-account: crossplane-provider-gcp@dotted-axle-495612-f4.iam.gserviceaccount.com
