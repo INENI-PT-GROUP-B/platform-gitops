@@ -1,0 +1,21 @@
+---
+# DeploymentRuntimeConfig for provider-kubernetes.
+#
+# Pins the provider's controller ServiceAccount to a fixed name so the cluster
+# RBAC binding set up with the provider install (S2-09) targets a stable
+# identifier instead of Crossplane's implicit default naming. provider-kubernetes
+# acts in-cluster as this ServiceAccount; no GCP Workload Identity annotation is
+# needed (unlike provider-gcp).
+#
+# Coordination (S2-09): the provider-kubernetes Provider must reference this
+# runtime config via spec.runtimeConfigRef.name: provider-kubernetes, and the
+# cluster RBAC binding must target the ServiceAccount
+# crossplane-system/provider-kubernetes.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-kubernetes
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-kubernetes
