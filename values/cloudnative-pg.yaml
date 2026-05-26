@@ -1,0 +1,45 @@
+---
+# Helm values for the CloudNativePG operator, consumed by the
+# applications/cloudnative-pg.yaml Argo CD Application (multi-source $values
+# ref).
+#
+# CloudNativePG provisions a dedicated PostgreSQL `Cluster` per tenant under
+# the Crossplane Composition (S3-04). This values file is the operator install
+# only — backup endpoints, per-tenant `Cluster` specs, and `PodMonitor` wiring
+# are handled by S3-04 and S4-01 respectively.
+
+# Install the operator's CRDs via the chart. `Cluster`, `Backup`, `Pooler`,
+# `ScheduledBackup` and friends all live under postgresql.cnpg.io and ship
+# from this chart; without them the operator has nothing to reconcile.
+crds:
+  create: true
+
+# Single-replica operator. The active controller uses leader election, so a
+# restart converges without operational drama. Multi-replica only adds value
+# at scale we will not reach in the project window.
+replicaCount: 1
+
+# Sized for an academic-scope platform (~5 tenants, single Postgres replica
+# each). CPU is left without a limit deliberately to avoid throttling — memory
+# has a hard limit to bound the OOM blast radius.
+resources:
+  requests:
+    cpu: 10m
+    memory: 100Mi
+  limits:
+    memory: 256Mi
+
+# ServiceAccount defaults to chart-managed (`cloudnative-pg`). CloudNativePG
+# does not need GCP access for the operator itself — per-tenant backups go to
+# GCS using a tenant-scoped credential plumbed through by the Crossplane
+# Composition in S3-04, not by the operator pod.
+serviceAccount:
+  create: true
+
+# Prometheus scrape is wired by kube-prometheus-stack (S4-01); off here so
+# this chart does not try to install a `PodMonitor` against a non-existent
+# Prometheus operator.
+monitoring:
+  podMonitorEnabled: false
+  grafanaDashboard:
+    create: false

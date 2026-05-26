@@ -1,0 +1,51 @@
+---
+# Argo CD Application deploying the upstream CloudNativePG operator Helm chart
+# with the platform values in values/cloudnative-pg.yaml. Multi-source: the
+# chart comes from its Helm repo, the values file from this git repo via the
+# $values ref.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# chart version is pinned per the CI/tooling version-pinning convention;
+# upgrades go through an explicit PR.
+#
+# CloudNativePG is the in-cluster PostgreSQL operator: this Application installs
+# only the operator and its CRDs into the `cnpg-system` namespace. Per-tenant
+# `Cluster` resources, backup configuration, and `PodMonitor` wiring are
+# downstream concerns handled by S3-04 (tenant Cluster composition) and S4-01
+# (kube-prometheus-stack).
+#
+# namespace (argocd), project (default) and the git repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://cloudnative-pg.io/charts
+      chart: cloudnative-pg
+      targetRevision: 0.28.2
+      helm:
+        valueFiles:
+          - $values/values/cloudnative-pg.yaml
+    - repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
