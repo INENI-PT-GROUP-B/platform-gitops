@@ -1,0 +1,38 @@
+---
+# Helm values for the ExternalDNS platform component, consumed by the
+# applications/externaldns.yaml Argo CD Application (multi-source $values ref).
+#
+# ExternalDNS watches Ingress/Service resources and writes the matching records
+# into the Cloud DNS zone `platform-zone` (domain fhuebung.lol). It authenticates
+# to Cloud DNS as the `external-dns` GSA via GKE Workload Identity (no JSON key);
+# the GSA, its WI binding for external-dns/external-dns, and the zone-scoped
+# roles/dns.admin binding are provisioned in platform-iac (terraform/iam, terraform/dns).
+
+provider:
+  name: google
+
+# Same-project public zone. --google-project is explicit for clarity even though
+# ExternalDNS would otherwise auto-detect it from the GKE metadata server.
+extraArgs:
+  - --google-project=dotted-axle-495612-f4
+  - --google-zone-visibility=public
+
+# Restrict ExternalDNS to the platform domain so it never touches other zones.
+domainFilters:
+  - fhuebung.lol
+
+# TXT-registry ownership: ExternalDNS only manages records carrying this owner id,
+# so it never deletes or overwrites records it did not create.
+registry: txt
+txtOwnerId: gke-prod
+
+# `sync` (not the default upsert-only) so a record is removed when its
+# Ingress/Service goes away — required for the tenant-deletion cleanup (S4-03).
+# The TXT ownership above keeps deletions scoped to ExternalDNS-managed records.
+policy: sync
+
+serviceAccount:
+  create: true
+  name: external-dns
+  annotations:
+    iam.gke.io/gcp-service-account: external-dns@dotted-axle-495612-f4.iam.gserviceaccount.com
