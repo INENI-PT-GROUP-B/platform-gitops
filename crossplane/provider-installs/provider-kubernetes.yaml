@@ -1,0 +1,40 @@
+---
+# provider-kubernetes install.
+#
+# Crossplane's Kubernetes provider applies the in-cluster Kubernetes objects a
+# tenant Composition renders (namespace, NetworkPolicy, ResourceQuota,
+# LimitRange, ExternalSecret, Traefik Middleware) — see S3-05.
+#
+# The Provider's controller ServiceAccount name is pinned by the
+# DeploymentRuntimeConfig `provider-kubernetes` on main (PR #12). Cluster RBAC
+# for that ServiceAccount is granted by the ClusterRoleBinding below —
+# provider-kubernetes applies arbitrary Kubernetes objects across tenant
+# namespaces, so the binding targets the built-in cluster-admin ClusterRole.
+# Tightening to a least-privilege custom ClusterRole is a future hardening task.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-kubernetes
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-kubernetes:v1.2.1
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  revisionHistoryLimit: 1
+  runtimeConfigRef:
+    name: provider-kubernetes
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: provider-kubernetes-cluster-admin
+  labels:
+    app.kubernetes.io/part-of: crossplane
+    app.kubernetes.io/managed-by: argocd
+subjects:
+  - kind: ServiceAccount
+    name: provider-kubernetes
+    namespace: crossplane-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
