@@ -1,0 +1,30 @@
+---
+# Let's Encrypt staging ClusterIssuer.
+#
+# Used for non-production / test certificates so the LE production rate limits
+# stay untouched during iteration. Staging issues certs signed by a non-public
+# root that browsers reject — switch a Certificate's issuerRef to
+# letsencrypt-prod once the issuance flow is confirmed working end-to-end.
+#
+# DNS-01 solver against Cloud DNS via Workload Identity:
+#   - cert-manager's controller pod runs as the `cert-manager` KSA, bound to
+#     the `cert-manager` GSA in GCP (platform-iac/terraform/iam).
+#   - The GSA has zone-scoped roles/dns.admin on `platform-zone`
+#     (platform-iac/terraform/dns).
+#   - --cluster-issuer-ambient-credentials=true on the controller (see
+#     values/cert-manager.yaml) lets this ClusterIssuer pick up the pod SA
+#     without a per-Issuer Secret.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: 2510781014@hochschule-burgenland.at
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - dns01:
+          cloudDNS:
+            project: dotted-axle-495612-f4
