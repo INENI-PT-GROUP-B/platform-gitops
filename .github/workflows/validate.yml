@@ -17,6 +17,7 @@ on:
     branches: [main]
     paths:
       - 'applications/**'
+      - 'cert-manager/**'
       - 'crossplane/**'
       - 'tenants/**'
       - 'values/**'
