@@ -21,7 +21,7 @@ metadata:
 spec:
   acme:
     server: https://acme-staging-v02.api.letsencrypt.org/directory
-    email: 2510781014@hochschule-burgenland.at
+    email: acme@fhuebung.lol
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
