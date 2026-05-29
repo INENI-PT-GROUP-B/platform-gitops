@@ -1,0 +1,32 @@
+---
+# Wildcard certificate for *.fhuebung.lol, consumed by Traefik's default TLS
+# store (see values/traefik.yaml § tlsStore).
+#
+# cert-manager solves the ACME DNS-01 challenge against the Cloud DNS zone
+# `platform-zone` and writes the resulting key pair into the Secret
+# `wildcard-fhuebung-lol-tls`. The Secret lives in the `traefik` namespace
+# because Traefik's default TLSStore resolves the certificate Secret in its own
+# namespace.
+#
+# Issued by the letsencrypt-prod ClusterIssuer
+# (cert-manager/clusterissuers/letsencrypt-prod.yaml) so the cert is
+# browser-trusted. A wildcard covers only one subdomain level, which is why
+# tenant routing is path-based (architecture-decisions.md § Ingress). The
+# apex `fhuebung.lol` is intentionally NOT covered here — the platform only
+# serves subdomains. If an apex Ingress is ever added, it needs its own
+# Certificate or this dnsNames list must be extended.
+#
+# Synced by the sibling Application applications/traefik-certificate.yaml, which
+# depends on the cert-manager Certificate CRD installed by applications/cert-manager.yaml.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-fhuebung-lol
+  namespace: traefik
+spec:
+  secretName: wildcard-fhuebung-lol-tls
+  dnsNames:
+    - "*.fhuebung.lol"
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod

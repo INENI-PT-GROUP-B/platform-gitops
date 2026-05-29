@@ -1,0 +1,72 @@
+---
+# Helm values for the Traefik platform component, consumed by the
+# applications/traefik.yaml Argo CD Application (multi-source $values ref).
+#
+# Traefik is the in-cluster ingress controller. It terminates TLS for the
+# wildcard `*.fhuebung.lol` (cert issued by cert-manager, see
+# traefik/certificate.yaml) and fronts every tenant URL with path-based routing.
+# The Service is type LoadBalancer so GKE provisions a Google L4 load balancer
+# with a public IP; ExternalDNS publishes that IP under the wildcard host
+# (S2-04). TLS is terminated in Traefik, not at the L4 LB.
+
+# Single replica for the academic-scope platform: the assignment does not
+# require ingress HA, and a second replica would only duplicate the LB-internal
+# state without offsetting benefit at this scale. The trade-off is a brief
+# inbound-traffic gap during pod evictions or node-pool upgrades, which is
+# acceptable in our scope. Memory has a hard limit to bound the OOM blast
+# radius; CPU is left without a limit deliberately to avoid throttling the
+# ingress data path under bursty tenant traffic — consistent with the
+# cert-manager / crossplane values convention.
+deployment:
+  replicas: 1
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# LoadBalancer Service. No static IP reservation: GKE assigns one, and the
+# ExternalDNS hostname annotation below tells ExternalDNS (S2-04) to publish
+# the LB's IP under `*.fhuebung.lol` in Cloud DNS. ExternalDNS runs with the
+# Helm-chart default sources (`service, ingress`) and `policy: sync`, so the
+# record is created on Service creation and removed on deletion. The value is
+# single-quoted because a bare `*` is a reserved YAML token.
+service:
+  enabled: true
+  spec:
+    type: LoadBalancer
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: '*.fhuebung.lol'
+
+# Entrypoints: web (:80) permanently redirects to websecure (:443) so all
+# tenant traffic is TLS. The websecure entrypoint already terminates TLS on
+# :443 by chart default (ports.websecure.http.tls.enabled: true) using the
+# default TLS store configured below — no extra config needed here.
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+# Default TLS store: serve the wildcard `*.fhuebung.lol` certificate for any
+# request that does not match a more specific cert. The Secret is produced by
+# the cert-manager Certificate in traefik/certificate.yaml (same namespace).
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: wildcard-fhuebung-lol-tls
+
+# Do NOT enable Traefik's own ACME/certResolver: cert-manager owns ACME
+# cluster-wide. Two ACME clients on the same domain race the LE rate limits and
+# the DNS-01 TXT records. cert-manager issues the wildcard via DNS-01; Traefik
+# only consumes the resulting Secret.
+
+# Prometheus scrape is wired by kube-prometheus-stack (S4-01); not enabled here.
+metrics:
+  prometheus:
+    service:
+      enabled: false

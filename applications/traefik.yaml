@@ -1,0 +1,53 @@
+---
+# Argo CD Application deploying the upstream Traefik Helm chart with the
+# platform values in values/traefik.yaml. Multi-source: the chart comes from
+# its Helm repo, the values file from this git repo via the $values ref.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# chart version is pinned per the CI/tooling version-pinning convention;
+# upgrades go through an explicit PR.
+#
+# Traefik is the in-cluster ingress controller: it terminates TLS for the
+# wildcard `*.fhuebung.lol`, fronts every tenant URL, and is exposed via a
+# LoadBalancer Service so GKE provisions a Google L4 load balancer with a
+# public IP (which ExternalDNS publishes in S2-04).
+#
+# The wildcard Certificate that backs Traefik's default TLS store ships via the
+# sibling Application applications/traefik-certificate.yaml, which depends on
+# the cert-manager Certificate CRD (S2-03).
+#
+# namespace (argocd), project (default) and the git repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://traefik.github.io/charts
+      chart: traefik
+      targetRevision: 40.2.0
+      helm:
+        valueFiles:
+          - $values/values/traefik.yaml
+    - repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
