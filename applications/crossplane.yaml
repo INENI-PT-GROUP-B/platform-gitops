@@ -1,0 +1,55 @@
+---
+# Argo CD Application deploying the upstream Crossplane core Helm chart with
+# the platform values in values/crossplane.yaml. Multi-source: the chart comes
+# from its Helm repo, the values file from this git repo via the $values ref.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# chart version is pinned per the CI/tooling version-pinning convention;
+# upgrades go through an explicit PR.
+#
+# Pinned to the 1.x maintenance line (Crossplane 1.20.8, released the same day
+# as v2.3.1). v2 removed native patch-and-transform Compositions, which the
+# planned tenant Compositions in S3-04/S3-05/S3-06 will use — staying on 1.x
+# preserves that design. v2 adoption is a separate, larger decision.
+#
+# This Application installs only Crossplane core plus the rbac-manager.
+# The three providers (provider-helm, provider-kubernetes; plus provider-gcp
+# in a focused follow-up) install via the sibling Application
+# applications/crossplane-providers.yaml, which depends on the CRDs (Provider,
+# ProviderConfig, DeploymentRuntimeConfig) installed here.
+#
+# namespace (argocd), project (default) and the git repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.crossplane.io/stable
+      chart: crossplane
+      targetRevision: 1.20.8
+      helm:
+        valueFiles:
+          - $values/values/crossplane.yaml
+    - repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

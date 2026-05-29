@@ -1,0 +1,40 @@
+---
+# Helm values for Crossplane core, consumed by the applications/crossplane.yaml
+# Argo CD Application (multi-source $values ref).
+#
+# Crossplane reconciles the per-tenant Compositions defined in S3-04 onwards
+# into actual cluster resources (namespace, CloudNativePG Cluster, BasicAuth
+# setup, Helm Release of the app chart). This values file is the install only —
+# Compositions and providers live in their own files.
+
+# Single-replica controller and rbac-manager. Crossplane uses leader election
+# internally so restarts converge without operational drama; the academic
+# project scope does not need HA.
+replicas: 1
+resourcesCrossplane:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    # Drop the chart's default 500m CPU cap (Helm null removes the merged key):
+    # requests-only, no CPU throttling on the controller. Memory stays capped.
+    cpu: null
+    memory: 512Mi
+
+rbacManager:
+  replicas: 1
+  leaderElection: true
+resourcesRBACManager:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    # Drop the chart's default 100m CPU cap (see resourcesCrossplane above).
+    cpu: null
+    memory: 256Mi
+
+# Prometheus scrape is wired by kube-prometheus-stack (S4-01); off here so
+# the chart does not emit a ServiceMonitor against a non-existent Prometheus
+# operator.
+metrics:
+  enabled: false

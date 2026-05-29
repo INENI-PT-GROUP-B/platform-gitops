@@ -1,0 +1,40 @@
+---
+# provider-helm install.
+#
+# Crossplane's Helm provider renders the per-tenant application Helm release
+# into the tenant namespace as part of the Composition in S3-06 (chart pulled
+# from GHCR as an OCI artefact).
+#
+# The Provider's controller ServiceAccount name is pinned by the
+# DeploymentRuntimeConfig `provider-helm` on main (PR #12). Cluster RBAC for
+# that ServiceAccount is granted by the ClusterRoleBinding below — provider-helm
+# renders charts that may produce any Kubernetes object, so the binding targets
+# the built-in cluster-admin ClusterRole. Tightening to a least-privilege
+# custom ClusterRole is a future hardening task.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-helm
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-helm:v1.2.0
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  revisionHistoryLimit: 1
+  runtimeConfigRef:
+    name: provider-helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: provider-helm-cluster-admin
+  labels:
+    app.kubernetes.io/part-of: crossplane
+    app.kubernetes.io/managed-by: argocd
+subjects:
+  - kind: ServiceAccount
+    name: provider-helm
+    namespace: crossplane-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
