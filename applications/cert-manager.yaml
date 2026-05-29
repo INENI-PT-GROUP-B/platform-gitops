@@ -1,0 +1,54 @@
+---
+# Argo CD Application deploying the upstream cert-manager Helm chart with the
+# platform values in values/cert-manager.yaml. Multi-source: the chart comes
+# from its Helm repo, the values file from this git repo via the $values ref.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# chart version is pinned per the CI/tooling version-pinning convention;
+# upgrades go through an explicit PR.
+#
+# cert-manager solves ACME DNS-01 challenges against the Cloud DNS zone
+# `platform-zone`, authenticating as the `cert-manager` GSA via Workload
+# Identity (no JSON key). The GSA, its WI binding for `cert-manager/cert-manager`,
+# and the zone-scoped roles/dns.admin binding are provisioned by platform-iac
+# (terraform/iam, terraform/dns).
+#
+# The ClusterIssuer manifests (letsencrypt-staging, letsencrypt-prod) ship via
+# the sibling Application applications/cert-manager-clusterissuers.yaml, which
+# depends on the CRDs installed here.
+#
+# namespace (argocd), project (default) and the git repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.jetstack.io
+      chart: cert-manager
+      targetRevision: v1.20.2
+      helm:
+        valueFiles:
+          - $values/values/cert-manager.yaml
+    - repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

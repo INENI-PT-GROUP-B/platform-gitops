@@ -1,0 +1,74 @@
+---
+# Helm values for the cert-manager platform component, consumed by the
+# applications/cert-manager.yaml Argo CD Application (multi-source $values ref).
+#
+# cert-manager solves ACME DNS-01 challenges against the Cloud DNS zone
+# `platform-zone` (domain fhuebung.lol) and issues the wildcard certificate
+# `*.fhuebung.lol` plus the per-host certs for `argocd.fhuebung.lol` and
+# `grafana.fhuebung.lol`. It authenticates to Cloud DNS as the `cert-manager`
+# GSA via GKE Workload Identity (no JSON key); the GSA, its WI binding for
+# `cert-manager/cert-manager`, and the zone-scoped roles/dns.admin binding are
+# provisioned in platform-iac (terraform/iam, terraform/dns).
+
+# Install the CRDs alongside the chart and keep them on chart uninstall so a
+# rollback never drops Certificate/Issuer/Order resources by accident.
+crds:
+  enabled: true
+  keep: true
+
+# Lift the default lockdown on ambient credentials for ClusterIssuers so the
+# DNS-01 solver picks up the pod's Workload Identity binding instead of
+# requiring a per-Issuer Secret. Required for Cloud DNS via WI.
+extraArgs:
+  - --cluster-issuer-ambient-credentials=true
+
+# Workload Identity: bind the chart's KSA to the platform-iac-provisioned GSA.
+# The KSA name `cert-manager` matches the iam module's cert_manager_ksa_name
+# default (platform-iac/terraform/iam/variables.tf).
+serviceAccount:
+  create: true
+  name: cert-manager
+  annotations:
+    iam.gke.io/gcp-service-account: cert-manager@dotted-axle-495612-f4.iam.gserviceaccount.com
+
+# Sized for the academic-scope platform (~5 tenants, ~10 certs). Single replica
+# per component; cert-manager's leader election keeps the active controller
+# correct under restarts. CPU is left without a limit deliberately to avoid
+# throttling — memory has hard limits to bound the OOM blast radius.
+replicaCount: 1
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+webhook:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+cainjector:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+startupapicheck:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+# Prometheus scrape is wired by kube-prometheus-stack (S4-01); not enabled here.
+prometheus:
+  enabled: false

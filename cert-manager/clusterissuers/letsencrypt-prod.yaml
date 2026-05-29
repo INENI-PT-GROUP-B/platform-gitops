@@ -1,0 +1,30 @@
+---
+# Let's Encrypt production ClusterIssuer.
+#
+# Issues browser-trusted certificates. Subject to LE production rate limits
+# (50 certs per registered domain per week), so prefer letsencrypt-staging
+# during iteration. Switch a Certificate's issuerRef to this once the staging
+# issuance flow is confirmed end-to-end.
+#
+# DNS-01 solver against Cloud DNS via Workload Identity — see the staging
+# ClusterIssuer for the credential chain.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: acme@fhuebung.lol
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      # See the staging ClusterIssuer for the rationale on selector.dnsZones
+      # and hostedZoneName.
+      - selector:
+          dnsZones:
+            - "fhuebung.lol"
+        dns01:
+          cloudDNS:
+            project: dotted-axle-495612-f4
+            hostedZoneName: platform-zone
