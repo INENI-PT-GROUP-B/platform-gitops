@@ -25,6 +25,15 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
     solvers:
-      - dns01:
+      # selector.dnsZones pins this solver to fhuebung.lol so a future second
+      # zone would not silently fall through to this issuer. hostedZoneName
+      # points cert-manager directly at the managed zone (cert-manager's
+      # field name; not the numeric GCP zone ID) so per-challenge zone
+      # lookups are skipped — faster issuance, more robust self-checks.
+      - selector:
+          dnsZones:
+            - "fhuebung.lol"
+        dns01:
           cloudDNS:
             project: dotted-axle-495612-f4
+            hostedZoneName: platform-zone

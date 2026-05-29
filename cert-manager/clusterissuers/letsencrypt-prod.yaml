@@ -19,6 +19,12 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
-      - dns01:
+      # See the staging ClusterIssuer for the rationale on selector.dnsZones
+      # and hostedZoneName.
+      - selector:
+          dnsZones:
+            - "fhuebung.lol"
+        dns01:
           cloudDNS:
             project: dotted-axle-495612-f4
+            hostedZoneName: platform-zone
