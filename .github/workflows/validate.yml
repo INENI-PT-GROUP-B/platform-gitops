@@ -1,0 +1,183 @@
+name: Validate
+
+# Schema-validation gate for everything Argo CD reconciles from this repo.
+# Runs in addition to the org-wide reusable lint (yamllint, markdownlint) wired
+# in lint.yml; this workflow understands Kubernetes and Helm semantics.
+#
+# Two jobs:
+#   - helm-lint  : for every values/<name>.yaml, pulls the chart referenced by
+#                  applications/<name>.yaml and runs `helm lint --strict`.
+#   - kubeconform: schema-validates manifests in applications/, crossplane/providers/
+#                  and tenants/ against Kubernetes + CRD schemas.
+#
+# All tool versions are pinned per platform/CONTRIBUTING.md § Tool Versions in CI.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'applications/**'
+      - 'cert-manager/**'
+      - 'crossplane/**'
+      - 'tenants/**'
+      - 'values/**'
+      - '.github/workflows/validate.yml'
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.21.0
+  YQ_VERSION: v4.53.2
+  KUBECONFORM_VERSION: v0.7.0
+  # CRDs-catalog pinned to a specific commit so an upstream rewrite cannot turn a
+  # green main red without a deliberate bump here. Bump together with new CRDs.
+  CRDS_CATALOG_REF: bc3592a812136ae4eac1effcee6a1b895a066bee
+  # Kubernetes API version used to validate built-in resources. Track the GKE
+  # control-plane version (see platform-iac terraform/cluster) loosely; exact
+  # match is not required for schema validation.
+  KUBE_VERSION: "1.31.0"
+
+jobs:
+  helm-lint:
+    name: helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install yq
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /usr/local/bin/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          chmod +x /usr/local/bin/yq
+          yq --version
+
+      # Discovery loop: iterate Argo CD Applications and lint each one that declares a
+      # Helm source. The Application is the source of truth for "which values file
+      # belongs to which chart" — it explicitly references the values file via
+      # spec.sources[].helm.valueFiles (a `$values/...` ref into this same repo).
+      #
+      # Applications without a Helm source (e.g. crossplane-providerconfigs.yaml syncs
+      # a path) yield an empty chart query and are skipped. Values files that are not
+      # Helm values — e.g. the upcoming values/app-version.yaml read by Crossplane,
+      # not by Helm — are never visited because no Application references them as a
+      # helm.valueFiles entry.
+      - name: Helm-lint every Application with a Helm source
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          app_files=(applications/*.yaml)
+          if [[ ${#app_files[@]} -eq 0 ]]; then
+            echo "No Application manifests found, nothing to lint."
+            exit 0
+          fi
+
+          failed=0
+          for app_file in "${app_files[@]}"; do
+            name=$(basename "${app_file}" .yaml)
+
+            repo_url=$(yq -r '.spec.sources[]? | select(.chart) | .repoURL' "${app_file}")
+            chart=$(yq -r '.spec.sources[]? | select(.chart) | .chart' "${app_file}")
+            version=$(yq -r '.spec.sources[]? | select(.chart) | .targetRevision' "${app_file}")
+
+            if [[ -z "${chart}" ]]; then
+              echo "::notice file=${app_file}::No Helm source, skipping helm lint"
+              continue
+            fi
+
+            # valueFiles entries are written as `$values/values/<name>.yaml`. Strip the
+            # `$values/` prefix to map them onto on-disk paths in this repo.
+            mapfile -t value_files < <(
+              yq -r '.spec.sources[]? | select(.helm.valueFiles) | .helm.valueFiles[]' "${app_file}" \
+                | sed 's|^\$values/||'
+            )
+
+            value_args=()
+            for vf in "${value_files[@]}"; do
+              if [[ ! -f "${vf}" ]]; then
+                echo "::error file=${app_file}::Referenced values file ${vf} not found in repo"
+                failed=1
+                continue 2
+              fi
+              value_args+=(--values "${vf}")
+            done
+
+            echo "::group::helm lint ${name} (chart ${chart}@${version})"
+            repo_alias="lint-${name}"
+            helm repo add "${repo_alias}" "${repo_url}" >/dev/null
+
+            workdir=$(mktemp -d)
+            helm pull "${repo_alias}/${chart}" --version "${version}" --untar --untardir "${workdir}"
+
+            if ! helm lint --strict "${value_args[@]}" "${workdir}/${chart}"; then
+              failed=1
+            fi
+            rm -rf "${workdir}"
+            echo "::endgroup::"
+          done
+
+          exit "${failed}"
+
+  kubeconform:
+    name: kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf kubeconform.tar.gz kubeconform
+          install -m 0755 kubeconform /usr/local/bin/kubeconform
+          rm -f kubeconform.tar.gz kubeconform
+          kubeconform -v
+
+      # Validation paths:
+      #   applications/         — Argo CD Application (CRD), schema from datreeio catalog
+      #   cert-manager/         — ClusterIssuer CRs (S2-03), schema from datreeio catalog
+      #   crossplane/providers/ — Crossplane ProviderConfig + DeploymentRuntimeConfig (CRDs)
+      #   tenants/              — XR claims (XTenant), schema added in Sprint 3
+      # crossplane/xrds/ and crossplane/compositions/ are intentionally NOT validated
+      # yet — they are populated in Sprint 3 (S3-01ff.). Re-include the paths in the
+      # arg list below once those manifests exist and the CRD schemas are available.
+      # TODO(S3-01): add crossplane/xrds and crossplane/compositions to the args list
+      - name: Run kubeconform
+        run: |
+          set -euo pipefail
+          catalog_base="https://raw.githubusercontent.com/datreeio/CRDs-catalog/${CRDS_CATALOG_REF}"
+          # Template syntax per CRDs-catalog README — kubeconform uses Go text/template,
+          # not Sprig, so no pipe filters here. Catalog stores files with the kind
+          # spelled exactly as in the manifest (e.g. argoproj.io/application_v1alpha1.json,
+          # which kubeconform resolves case-insensitively when fetching).
+          crd_template="{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+          # Path list: top-level dirs holding manifests Argo CD reconciles. cert-manager/
+          # is included even if it does not exist yet (added by S2-03); kubeconform tolerates
+          # missing directories silently. Skip with `if [ -d ]` guards is not needed.
+          paths=()
+          for d in applications crossplane/providers cert-manager tenants; do
+            if [[ -d "$d" ]]; then
+              paths+=("$d")
+            fi
+          done
+          # -skip ProviderConfig: the per-provider ProviderConfig CRDs (gcp.upbound.io,
+          # helm.crossplane.io, kubernetes.crossplane.io) are installed by the providers
+          # themselves and are not in the datreeio catalog. Skipping the schema lookup
+          # for this Kind keeps the gate honest about everything else — DeploymentRuntimeConfig,
+          # Argo CD Application, etc. — while not failing on a known absence.
+          kubeconform \
+            -strict \
+            -summary \
+            -skip ProviderConfig \
+            -kubernetes-version "${KUBE_VERSION}" \
+            -schema-location default \
+            -schema-location "${catalog_base}/${crd_template}" \
+            "${paths[@]}"
