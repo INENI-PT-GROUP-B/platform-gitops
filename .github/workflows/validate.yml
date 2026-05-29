@@ -20,6 +20,7 @@ on:
       - 'cert-manager/**'
       - 'crossplane/**'
       - 'tenants/**'
+      - 'traefik/**'
       - 'values/**'
       - '.github/workflows/validate.yml'
 
@@ -146,6 +147,7 @@ jobs:
       #   cert-manager/         — ClusterIssuer CRs (S2-03), schema from datreeio catalog
       #   crossplane/providers/ — Crossplane ProviderConfig + DeploymentRuntimeConfig (CRDs)
       #   tenants/              — XR claims (XTenant), schema added in Sprint 3
+      #   traefik/              — wildcard Certificate (S2-06), schema from datreeio catalog
       # crossplane/xrds/ and crossplane/compositions/ are intentionally NOT validated
       # yet — they are populated in Sprint 3 (S3-01ff.). Re-include the paths in the
       # arg list below once those manifests exist and the CRD schemas are available.
@@ -163,7 +165,7 @@ jobs:
           # is included even if it does not exist yet (added by S2-03); kubeconform tolerates
           # missing directories silently. Skip with `if [ -d ]` guards is not needed.
           paths=()
-          for d in applications crossplane/providers cert-manager tenants; do
+          for d in applications cert-manager crossplane/providers tenants traefik; do
             if [[ -d "$d" ]]; then
               paths+=("$d")
             fi

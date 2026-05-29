@@ -1,0 +1,43 @@
+---
+# Argo CD Application syncing the Traefik wildcard certificate manifest in this
+# repo (traefik/certificate.yaml).
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# Certificate here depends on the cert-manager.io `Certificate` CRD installed by
+# the cert-manager install Application (applications/cert-manager.yaml).
+# SkipDryRunOnMissingResource plus the retry and selfHeal policy let this app
+# converge once that CRD exists, instead of coupling it to a hard sync-wave.
+# Same pattern as applications/cert-manager-clusterissuers.yaml.
+#
+# Kept separate from the Traefik chart-install Application so the certificate's
+# sync policy (CRD-dependent) does not gate the ingress controller install.
+#
+# namespace (argocd), project (default) and repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-certificate
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: traefik
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
