@@ -1,0 +1,53 @@
+---
+# Root App-of-Apps — the single Argo CD Application that watches applications/
+# and reconciles every sibling Application in this directory (and itself).
+#
+# This file is the git-side source of truth for the root. The bootstrap applies
+# an identical object once from platform-iac/bootstrap/argocd-bootstrap.yaml
+# (S2-01, Phase 5); Argo CD then adopts it and reconciles it from here like any
+# other component, closing the GitOps loop.
+#
+# CONTRACT WITH S2-01: the spec below MUST stay spec-identical to
+# platform-iac/bootstrap/argocd-bootstrap.yaml. Any spec divergence leaves the
+# root permanently OutOfSync — selfHeal would fight the bootstrap's apply on
+# every re-run. The metadata.finalizers entry is an intentional git-side-only
+# addition: the bootstrap's `kubectl apply --server-side` of the finalizer-free
+# object does not manage finalizers, so the field added here survives every
+# bootstrap re-run. The resources-finalizer makes deleting the root
+# cascade-delete all child Applications and their resources.
+#
+# namespace (argocd), project (default) and repoURL must match the Argo CD
+# install configured by the bootstrap (S2-01).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: applications
+    directory:
+      # Flat-layout convention: Applications live directly under applications/.
+      # recurse: false intentionally ignores any Application placed in a
+      # subdirectory so the layout stays explicit.
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
