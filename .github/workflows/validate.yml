@@ -57,41 +57,56 @@ jobs:
           chmod +x /usr/local/bin/yq
           yq --version
 
-      # Discovery loop: every values/<name>.yaml is paired with applications/<name>.yaml
-      # by filename convention (see applications/externaldns.yaml, cloudnative-pg.yaml).
-      # Applications without a chart (e.g. crossplane-providerconfigs.yaml syncs a
-      # path, not a chart) are skipped implicitly because they have no values file.
-      - name: Helm-lint every values file against its pinned chart
+      # Discovery loop: iterate Argo CD Applications and lint each one that declares a
+      # Helm source. The Application is the source of truth for "which values file
+      # belongs to which chart" — it explicitly references the values file via
+      # spec.sources[].helm.valueFiles (a `$values/...` ref into this same repo).
+      #
+      # Applications without a Helm source (e.g. crossplane-providerconfigs.yaml syncs
+      # a path) yield an empty chart query and are skipped. Values files that are not
+      # Helm values — e.g. the upcoming values/app-version.yaml read by Crossplane,
+      # not by Helm — are never visited because no Application references them as a
+      # helm.valueFiles entry.
+      - name: Helm-lint every Application with a Helm source
         run: |
           set -euo pipefail
 
           shopt -s nullglob
-          values_files=(values/*.yaml)
-          if [[ ${#values_files[@]} -eq 0 ]]; then
-            echo "No values files found, nothing to lint."
+          app_files=(applications/*.yaml)
+          if [[ ${#app_files[@]} -eq 0 ]]; then
+            echo "No Application manifests found, nothing to lint."
             exit 0
           fi
 
           failed=0
-          for values_file in "${values_files[@]}"; do
-            name=$(basename "${values_file}" .yaml)
-            app_file="applications/${name}.yaml"
+          for app_file in "${app_files[@]}"; do
+            name=$(basename "${app_file}" .yaml)
 
-            if [[ ! -f "${app_file}" ]]; then
-              echo "::error file=${values_file}::No matching ${app_file} for values file"
-              failed=1
+            repo_url=$(yq -r '.spec.sources[]? | select(.chart) | .repoURL' "${app_file}")
+            chart=$(yq -r '.spec.sources[]? | select(.chart) | .chart' "${app_file}")
+            version=$(yq -r '.spec.sources[]? | select(.chart) | .targetRevision' "${app_file}")
+
+            if [[ -z "${chart}" ]]; then
+              echo "::notice file=${app_file}::No Helm source, skipping helm lint"
               continue
             fi
 
-            repo_url=$(yq -r '.spec.sources[] | select(.chart) | .repoURL' "${app_file}")
-            chart=$(yq -r '.spec.sources[] | select(.chart) | .chart' "${app_file}")
-            version=$(yq -r '.spec.sources[] | select(.chart) | .targetRevision' "${app_file}")
+            # valueFiles entries are written as `$values/values/<name>.yaml`. Strip the
+            # `$values/` prefix to map them onto on-disk paths in this repo.
+            mapfile -t value_files < <(
+              yq -r '.spec.sources[]? | select(.helm.valueFiles) | .helm.valueFiles[]' "${app_file}" \
+                | sed 's|^\$values/||'
+            )
 
-            if [[ -z "${repo_url}" || -z "${chart}" || -z "${version}" ]]; then
-              echo "::error file=${app_file}::Could not extract repoURL/chart/targetRevision (Helm source missing?)"
-              failed=1
-              continue
-            fi
+            value_args=()
+            for vf in "${value_files[@]}"; do
+              if [[ ! -f "${vf}" ]]; then
+                echo "::error file=${app_file}::Referenced values file ${vf} not found in repo"
+                failed=1
+                continue 2
+              fi
+              value_args+=(--values "${vf}")
+            done
 
             echo "::group::helm lint ${name} (chart ${chart}@${version})"
             repo_alias="lint-${name}"
@@ -100,7 +115,7 @@ jobs:
             workdir=$(mktemp -d)
             helm pull "${repo_alias}/${chart}" --version "${version}" --untar --untardir "${workdir}"
 
-            if ! helm lint --strict --values "${values_file}" "${workdir}/${chart}"; then
+            if ! helm lint --strict "${value_args[@]}" "${workdir}/${chart}"; then
               failed=1
             fi
             rm -rf "${workdir}"
@@ -127,6 +142,7 @@ jobs:
 
       # Validation paths:
       #   applications/         — Argo CD Application (CRD), schema from datreeio catalog
+      #   cert-manager/         — ClusterIssuer CRs (S2-03), schema from datreeio catalog
       #   crossplane/providers/ — Crossplane ProviderConfig + DeploymentRuntimeConfig (CRDs)
       #   tenants/              — XR claims (XTenant), schema added in Sprint 3
       # crossplane/xrds/ and crossplane/compositions/ are intentionally NOT validated
@@ -142,6 +158,15 @@ jobs:
           # spelled exactly as in the manifest (e.g. argoproj.io/application_v1alpha1.json,
           # which kubeconform resolves case-insensitively when fetching).
           crd_template="{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+          # Path list: top-level dirs holding manifests Argo CD reconciles. cert-manager/
+          # is included even if it does not exist yet (added by S2-03); kubeconform tolerates
+          # missing directories silently. Skip with `if [ -d ]` guards is not needed.
+          paths=()
+          for d in applications crossplane/providers cert-manager tenants; do
+            if [[ -d "$d" ]]; then
+              paths+=("$d")
+            fi
+          done
           # -skip ProviderConfig: the per-provider ProviderConfig CRDs (gcp.upbound.io,
           # helm.crossplane.io, kubernetes.crossplane.io) are installed by the providers
           # themselves and are not in the datreeio catalog. Skipping the schema lookup
@@ -154,4 +179,4 @@ jobs:
             -kubernetes-version "${KUBE_VERSION}" \
             -schema-location default \
             -schema-location "${catalog_base}/${crd_template}" \
-            applications/ crossplane/providers/ tenants/
+            "${paths[@]}"

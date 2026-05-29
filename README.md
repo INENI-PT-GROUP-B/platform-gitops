@@ -29,7 +29,7 @@ Two CI workflows run on every PR:
 - `lint` (`.github/workflows/lint.yml`) — yamllint and markdownlint via the org-wide reusable workflow.
 - `validate` (`.github/workflows/validate.yml`) — schema validation for everything Argo CD reconciles from this repo:
   - `helm lint --strict` against every `values/*.yaml`, using the chart and version pinned in the matching `applications/<name>.yaml`.
-  - `kubeconform -strict` against `applications/`, `crossplane/providers/`, and `tenants/`, with CRD schemas pulled from a pinned commit of [`datreeio/CRDs-catalog`](https://github.com/datreeio/CRDs-catalog).
+  - `kubeconform -strict` against `applications/`, `cert-manager/`, `crossplane/providers/`, and `tenants/`, with CRD schemas pulled from a pinned commit of [`datreeio/CRDs-catalog`](https://github.com/datreeio/CRDs-catalog).
 
 Reproduce locally (matches CI):
 
@@ -44,13 +44,13 @@ yq -r '.spec.sources[] | select(.chart) | [.repoURL, .chart, .targetRevision] | 
       helm lint --strict --values values/externaldns.yaml "$tmpdir/$chart"
     done
 
-# kubeconform across the validated paths (pinned CRDs-catalog SHA matches CI)
-SCHEMA="https://raw.githubusercontent.com/datreeio/CRDs-catalog/<pinned-sha>/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+# kubeconform across the validated paths (CRDs-catalog SHA matches the CI pin)
+SCHEMA="https://raw.githubusercontent.com/datreeio/CRDs-catalog/bc3592a812136ae4eac1effcee6a1b895a066bee/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 kubeconform -strict -summary -skip ProviderConfig \
   -kubernetes-version 1.31.0 \
   -schema-location default \
   -schema-location "$SCHEMA" \
-  applications/ crossplane/providers/ tenants/
+  applications/ cert-manager/ crossplane/providers/ tenants/
 ```
 
 `crossplane/xrds/` and `crossplane/compositions/` are intentionally excluded until Sprint 3 lands the manifests and their CRD schemas.
