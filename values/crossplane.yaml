@@ -16,6 +16,9 @@ resourcesCrossplane:
     cpu: 100m
     memory: 256Mi
   limits:
+    # Drop the chart's default 500m CPU cap (Helm null removes the merged key):
+    # requests-only, no CPU throttling on the controller. Memory stays capped.
+    cpu: null
     memory: 512Mi
 
 rbacManager:
@@ -26,6 +29,8 @@ resourcesRBACManager:
     cpu: 50m
     memory: 128Mi
   limits:
+    # Drop the chart's default 100m CPU cap (see resourcesCrossplane above).
+    cpu: null
     memory: 256Mi
 
 # Prometheus scrape is wired by kube-prometheus-stack (S4-01); off here so
