@@ -30,12 +30,15 @@ spec:
   source:
     repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
     targetRevision: main
+    # Flat-layout convention: Applications live directly under applications/.
+    # `directory.recurse` is intentionally NOT set here. The Argo CD CRD field is
+    # a `bool` with no schema default, and the Go marshaller strips `false` (the
+    # zero-value of an omitempty field) on persist, so an explicit
+    # `directory.recurse: false` survives in git but not in the live object —
+    # which leaves the root permanently OutOfSync against this manifest. Letting
+    # the field default (false = no recursion) keeps git and the live state
+    # consistent; subdirectories under applications/ are ignored either way.
     path: applications
-    directory:
-      # Flat-layout convention: Applications live directly under applications/.
-      # recurse: false intentionally ignores any Application placed in a
-      # subdirectory so the layout stays explicit.
-      recurse: false
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
