@@ -108,8 +108,8 @@ tip of `app-backend@main`. Per-key annotations:
 #### `ingress.tls.secretName`
 
 - **Owner:** Chart default (static)
-- **Required?** Optional, defaulted — `"wildcard-fhuebung-lol"`.
-- **Example:** `"wildcard-fhuebung-lol"`
+- **Required?** Optional, defaulted — `"wildcard-fhuebung-lol-tls"`.
+- **Example:** `"wildcard-fhuebung-lol-tls"`
 - **Notes:** **shared** wildcard certificate produced by
   `platform-gitops/traefik/certificate.yaml`. The cert-manager `Certificate`
   writes its Secret into the `traefik` namespace; each tenant Ingress
