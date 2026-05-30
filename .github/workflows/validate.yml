@@ -19,6 +19,7 @@ on:
       - 'applications/**'
       - 'cert-manager/**'
       - 'crossplane/**'
+      - 'external-secrets/**'
       - 'tenants/**'
       - 'traefik/**'
       - 'values/**'
@@ -165,7 +166,7 @@ jobs:
           # is included even if it does not exist yet (added by S2-03); kubeconform tolerates
           # missing directories silently. Skip with `if [ -d ]` guards is not needed.
           paths=()
-          for d in applications cert-manager crossplane/providers tenants traefik; do
+          for d in applications cert-manager crossplane/providers external-secrets tenants traefik; do
             if [[ -d "$d" ]]; then
               paths+=("$d")
             fi
