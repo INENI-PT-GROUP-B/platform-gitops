@@ -1,0 +1,18 @@
+---
+# Central image tags and chart version for the tenant app.
+#
+# Read by the Crossplane Composition (S3-06) when rendering each tenant's Helm
+# Release. A tenant claim can override per-tenant via
+# `spec.imageTagOverride.{backend,frontend}` — the dedicated `staging` tenant
+# uses this to receive new versions before the central rollout.
+#
+# `chart.version` is the exact version pulled from
+# `ghcr.io/ineni-pt-group-b/app-chart` (OCI artefact published by the
+# app-backend release workflow once S2-12 lands).
+#
+# Contract: see docs/chart-contract.md. Bumps go through a normal PR.
+chart:
+  version: "0.1.0"
+images:
+  backend: "v0.1.0"
+  frontend: "v0.1.0"
