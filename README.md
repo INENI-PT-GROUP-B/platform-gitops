@@ -10,10 +10,15 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 | ---- | ------- |
 | `applications/` | ArgoCD `Application` manifests for platform components |
 | `applicationsets/` | Reserved — tenant apps are deployed by Crossplane via `provider-helm`, not via ApplicationSets |
+| `cert-manager/clusterissuers/` | `ClusterIssuer` manifests (Let's Encrypt staging / prod) |
 | `crossplane/providers/` | Crossplane provider configurations |
+| `crossplane/provider-installs/` | Crossplane `Provider` package installs (provider-helm, provider-kubernetes) |
 | `crossplane/xrds/` | Composite Resource Definitions (XRDs) |
 | `crossplane/compositions/` | Compositions implementing the XRDs |
+| `docs/` | Repository documentation (e.g. `chart-contract.md`) |
+| `external-secrets/clustersecretstores/` | `ClusterSecretStore` manifests (Google Secret Manager via Workload Identity) |
 | `tenants/` | Tenant claims (one file or folder per tenant) |
+| `traefik/` | Traefik-owned resources synced by Argo CD (e.g. the wildcard `Certificate`) |
 | `values/` | Helm values for platform components |
 
 ## How It Works
@@ -29,7 +34,7 @@ Two CI workflows run on every PR:
 - `lint` (`.github/workflows/lint.yml`) — yamllint and markdownlint via the org-wide reusable workflow.
 - `validate` (`.github/workflows/validate.yml`) — schema validation for everything Argo CD reconciles from this repo:
   - `helm lint --strict` against every `values/*.yaml`, using the chart and version pinned in the matching `applications/<name>.yaml`.
-  - `kubeconform -strict` against `applications/`, `cert-manager/`, `crossplane/providers/`, and `tenants/`, with CRD schemas pulled from a pinned commit of [`datreeio/CRDs-catalog`](https://github.com/datreeio/CRDs-catalog).
+  - `kubeconform -strict` against `applications/`, `cert-manager/`, `crossplane/providers/`, `external-secrets/`, `tenants/`, and `traefik/`, with CRD schemas pulled from a pinned commit of [`datreeio/CRDs-catalog`](https://github.com/datreeio/CRDs-catalog).
 
 Reproduce locally (matches CI):
 
@@ -50,7 +55,7 @@ kubeconform -strict -summary -skip ProviderConfig \
   -kubernetes-version 1.31.0 \
   -schema-location default \
   -schema-location "$SCHEMA" \
-  applications/ cert-manager/ crossplane/providers/ tenants/
+  applications/ cert-manager/ crossplane/providers/ external-secrets/ tenants/ traefik/
 ```
 
 `crossplane/xrds/` and `crossplane/compositions/` are intentionally excluded until Sprint 3 lands the manifests and their CRD schemas.
