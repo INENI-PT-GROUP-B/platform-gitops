@@ -10,8 +10,15 @@
 # (terraform/iam). The serviceAccountTemplate name below must stay in sync with
 # the iam module's crossplane_provider_gcp_ksa_name variable (default: provider-gcp).
 #
-# Coordination (S2-09): the provider-gcp Provider must reference this runtime
-# config via spec.runtimeConfigRef.name: provider-gcp.
+# Naming note (Option A, #21): the resource name `provider-gcp` is intentionally
+# generic. Under Upbound's family layout the controller pod ships in the
+# sub-provider provider-gcp-secretmanager, which references this DRC via
+# spec.runtimeConfigRef.name: provider-gcp. Crossplane's per-Provider ownership
+# of the DRC serviceAccountTemplate (see crossplane/crossplane#4552) means this
+# DRC is functionally owned by that sub-provider, even though the name does not
+# declare it. Trade-off documented in
+# platform/docs/claude/architecture-decisions.md § Crossplane providers —
+# family layout for GCP.
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:

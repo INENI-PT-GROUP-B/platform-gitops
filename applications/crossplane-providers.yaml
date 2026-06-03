@@ -1,6 +1,8 @@
 ---
 # Argo CD Application syncing the Crossplane Provider installs in this repo
-# (crossplane/provider-installs/provider-helm.yaml,
+# (crossplane/provider-installs/provider-family-gcp.yaml,
+#  crossplane/provider-installs/provider-gcp-secretmanager.yaml,
+#  crossplane/provider-installs/provider-helm.yaml,
 #  crossplane/provider-installs/provider-kubernetes.yaml).
 #
 # Picked up by the root App-of-Apps that watches applications/ (S2-02). The
@@ -10,12 +12,6 @@
 # converge once those CRDs exist, instead of coupling it to a hard sync-wave.
 # Same pattern as applications/crossplane-providerconfigs.yaml and
 # applications/cert-manager-clusterissuers.yaml.
-#
-# provider-gcp is intentionally not installed here — its install ships in a
-# focused follow-up PR after the Upjet family-vs-monolith package layout and
-# the DeploymentRuntimeConfig naming are agreed on with Ronny (the DRC on main
-# is named `provider-gcp`, which under the family approach would target the
-# sub-provider that holds the controller pod).
 #
 # namespace (argocd), project (default) and repoURL must match the root
 # App-of-Apps configured by the bootstrap (S2-02).
