@@ -1,0 +1,21 @@
+---
+# provider-family-gcp install.
+#
+# Metadata-only package: ships the shared gcp.upbound.io/v1beta1 ProviderConfig
+# CRD that all GCP sub-providers consume (see crossplane/providers/provider-config-gcp.yaml).
+# No controller pod runs from this package, so no DeploymentRuntimeConfig and no
+# ClusterRoleBinding are needed.
+#
+# Only one sub-provider is installed alongside: provider-gcp-secretmanager
+# (per-tenant BasicAuth htpasswd writes in S3-05). See
+# platform/docs/claude/architecture-decisions.md § Crossplane providers — family
+# layout for GCP for the rationale.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-gcp
+spec:
+  package: xpkg.upbound.io/upbound/provider-family-gcp:v2.5.4
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  revisionHistoryLimit: 1
