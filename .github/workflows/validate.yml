@@ -179,10 +179,17 @@ jobs:
           # Object only inside their nested resources[].base — kubeconform validates the
           # top-level Composition Kind, not those nested manifests, so this skip is mainly
           # forward cover for any future standalone Object CR.
+          # -skip Composition: the apiextensions.crossplane.io/v1 Composition schema in
+          # the pinned datreeio catalog reflects Crossplane v2 (spec keys: compositeTypeRef,
+          # mode, pipeline, writeConnectionSecretsToNamespace) rather than the v1.x P&T
+          # model our install uses (Crossplane 1.20.8 per architecture-decisions.md
+          # § Crossplane version), so validation would reject our `resources[]` field.
+          # Bump the catalog SHA to a version that still ships v1 schemas, or skip;
+          # skipping for now.
           kubeconform \
             -strict \
             -summary \
-            -skip ProviderConfig,Object \
+            -skip ProviderConfig,Object,Composition \
             -kubernetes-version "${KUBE_VERSION}" \
             -schema-location default \
             -schema-location "${catalog_base}/${crd_template}" \

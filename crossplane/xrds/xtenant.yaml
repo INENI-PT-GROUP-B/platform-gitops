@@ -21,7 +21,16 @@ spec:
           properties:
             spec:
               type: object
-              additionalProperties: false
+              # Do not add `additionalProperties: false` here. Crossplane
+              # merges its own system-owned fields (`compositionRef`,
+              # `claimRef`, `resourceRefs`, …) into the user `spec` when
+              # generating the CRD from this XRD. With
+              # `additionalProperties: false` declared, those injected
+              # properties are seen as "unknown" and the generated CRD is
+              # rejected at admission. Observed in platform-gitops#56.
+              # K8s prunes unknown user-supplied keys silently when only
+              # `properties` is defined — accepted default for soft
+              # multi-tenancy.
               required:
                 - name
                 - tier
@@ -51,7 +60,9 @@ spec:
                     values/app-version.yaml.
                 imageTagOverride:
                   type: object
-                  additionalProperties: false
+                  # Do not add `additionalProperties: false` here either.
+                  # Same generated-CRD admission constraint surfaced for
+                  # `spec` above — see platform-gitops#56.
                   description: >-
                     Per-tenant image tag overrides. Either or both sub-fields
                     may be set; unset sub-fields fall back to the central tags
