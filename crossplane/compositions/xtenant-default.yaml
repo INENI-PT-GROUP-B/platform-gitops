@@ -7,10 +7,14 @@
 # Composition files — Crossplane v1.x P&T selects at most one Composition per
 # XR by default, so a separate file would shadow this one.
 #
-# This file ships the base resources (S3-02):
-#   - Namespace (tenant-<spec.name>)
-#   - ResourceQuota (tier-dependent quantities)
-#   - LimitRange (per-container defaults; max tier-dependent)
+# This file ships:
+#   - S3-02 base resources: Namespace (tenant-<spec.name>), ResourceQuota
+#     (tier-dependent quantities), LimitRange (per-container defaults; max
+#     tier-dependent).
+#   - S3-03 NetworkPolicies (per tenant): default-deny ingress, default-deny
+#     egress with DNS allow to kube-system, permissive in-namespace app ↔ DB
+#     on TCP 5432, and allow ingress from the traefik namespace to app pods
+#     on TCP 80 / 3000.
 #
 # All resources are rendered via provider-kubernetes
 # (kubernetes.crossplane.io/v1alpha2 Object) using ProviderConfig "default"
@@ -221,3 +225,177 @@ spec:
               map:
                 small: 512Mi
                 medium: 1Gi
+
+    # -----------------------------------------------------------------------
+    # 4. NetworkPolicy — default-deny ingress
+    # -----------------------------------------------------------------------
+    # Empty podSelector matches all pods in the namespace. No ingress rules
+    # = implicit deny for all inbound traffic. Inbound is unlocked
+    # selectively by Resources 6 (in-namespace 5432) and 7 (Traefik → app).
+    - name: netpol-default-deny-ingress
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: default-deny-ingress
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                podSelector: {}
+                policyTypes:
+                  - Ingress
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+
+    # -----------------------------------------------------------------------
+    # 5. NetworkPolicy — default-deny egress + DNS allow to kube-system
+    # -----------------------------------------------------------------------
+    # All egress denied except DNS resolution against CoreDNS in kube-system.
+    # Without this allow, in-cluster service discovery (e.g. the CNPG cluster
+    # service hostname) would break. DB pod egress to GCS for CNPG backups
+    # is owned by S3-04 — added there with the correct pod selector.
+    - name: netpol-default-deny-egress-allow-dns
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: default-deny-egress-allow-dns
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                podSelector: {}
+                policyTypes:
+                  - Egress
+                egress:
+                  - to:
+                      - namespaceSelector:
+                          matchLabels:
+                            kubernetes.io/metadata.name: kube-system
+                    ports:
+                      - protocol: UDP
+                        port: 53
+                      - protocol: TCP
+                        port: 53
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+
+    # -----------------------------------------------------------------------
+    # 6. NetworkPolicy — allow app ↔ DB on TCP 5432 inside the namespace
+    # -----------------------------------------------------------------------
+    # Permissive cross-cut: any pod in tenant-<name> can reach any other pod
+    # in the same namespace on TCP 5432. Safe under soft multi-tenancy
+    # because the only listener on 5432 in the namespace is the CNPG cluster
+    # Service. Decouples this task from S3-04's eventual DB pod-selector
+    # convention; a cleanup follow-up can tighten with cnpg.io/cluster=...
+    # labels once S3-04 lands.
+    - name: netpol-allow-app-to-db
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: allow-app-to-db
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                podSelector: {}
+                policyTypes:
+                  - Ingress
+                  - Egress
+                ingress:
+                  - from:
+                      - podSelector: {}
+                    ports:
+                      - protocol: TCP
+                        port: 5432
+                egress:
+                  - to:
+                      - podSelector: {}
+                    ports:
+                      - protocol: TCP
+                        port: 5432
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+
+    # -----------------------------------------------------------------------
+    # 7. NetworkPolicy — allow ingress from the traefik namespace to app pods
+    # -----------------------------------------------------------------------
+    # Traefik (in the `traefik` namespace) terminates ingress and reaches app
+    # pods on the chart's service ports: TCP 80 (frontend), TCP 3000
+    # (backend). Port 5432 is intentionally absent — Traefik never reaches
+    # the DB even though the pod selector is empty.
+    - name: netpol-allow-traefik-to-app
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: allow-traefik-to-app
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                podSelector: {}
+                policyTypes:
+                  - Ingress
+                ingress:
+                  - from:
+                      - namespaceSelector:
+                          matchLabels:
+                            kubernetes.io/metadata.name: traefik
+                    ports:
+                      - protocol: TCP
+                        port: 80
+                      - protocol: TCP
+                        port: 3000
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
