@@ -51,7 +51,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
     retry:
-      limit: 5
+      limit: 4  # NEGATIVE TEST (#29 AC5): deliberate spec divergence from argocd-bootstrap.yaml — DO NOT MERGE
       backoff:
         duration: 30s
         factor: 2
