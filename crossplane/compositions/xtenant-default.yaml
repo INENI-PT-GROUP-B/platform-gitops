@@ -1,0 +1,223 @@
+---
+# Composition: xtenant-default
+#
+# First Composition implementing the XTenant XRD. Shared file: subsequent
+# Sprint 3 tasks (S3-03 NetworkPolicies, S3-04 CloudNativePG, S3-05 BasicAuth,
+# S3-06 Helm Release) extend the same resources[] list rather than adding new
+# Composition files — Crossplane v1.x P&T selects at most one Composition per
+# XR by default, so a separate file would shadow this one.
+#
+# This file ships the base resources (S3-02):
+#   - Namespace (tenant-<spec.name>)
+#   - ResourceQuota (tier-dependent quantities)
+#   - LimitRange (per-container defaults; max tier-dependent)
+#
+# All resources are rendered via provider-kubernetes
+# (kubernetes.crossplane.io/v1alpha2 Object) using ProviderConfig "default"
+# (InjectedIdentity, cluster-admin RBAC; see crossplane/providers/
+# provider-config-kubernetes.yaml).
+#
+# Tier semantics: spec.tier (small|medium) drives the ResourceQuota quantities
+# and LimitRange.max per container; defaultRequest/default/min stay constant
+# across tiers. See platform/docs/claude/architecture-decisions.md
+# § Multi-tenancy § Tiering and platform-gitops#38 scope.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xtenant-default
+  labels:
+    crossplane.io/xrd: xtenants.platform.fhuebung.lol
+spec:
+  compositeTypeRef:
+    apiVersion: platform.fhuebung.lol/v1alpha1
+    kind: XTenant
+
+  resources:
+    # -----------------------------------------------------------------------
+    # 1. Namespace `tenant-<spec.name>`
+    # -----------------------------------------------------------------------
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                # patched from spec.name → "tenant-<name>"
+                name: ""
+                labels:
+                  # patched from spec.name (verbatim, no transform)
+                  platform.fhuebung.lol/tenant: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.labels["platform.fhuebung.lol/tenant"]
+
+    # -----------------------------------------------------------------------
+    # 2. ResourceQuota — tier-mapped namespace-level caps
+    # -----------------------------------------------------------------------
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: tenant-quota
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                # Base values mirror the small tier; medium overrides via
+                # tier-map patches below.
+                hard:
+                  requests.cpu: "1"
+                  requests.memory: 1Gi
+                  limits.cpu: "2"
+                  limits.memory: 2Gi
+                  pods: "10"
+                  persistentvolumeclaims: "2"
+                  requests.storage: 10Gi
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["requests.cpu"]
+          transforms:
+            - type: map
+              map:
+                small: "1"
+                medium: "4"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["requests.memory"]
+          transforms:
+            - type: map
+              map:
+                small: 1Gi
+                medium: 4Gi
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["limits.cpu"]
+          transforms:
+            - type: map
+              map:
+                small: "2"
+                medium: "8"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["limits.memory"]
+          transforms:
+            - type: map
+              map:
+                small: 2Gi
+                medium: 8Gi
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["pods"]
+          transforms:
+            - type: map
+              map:
+                small: "10"
+                medium: "30"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["persistentvolumeclaims"]
+          transforms:
+            - type: map
+              map:
+                small: "2"
+                medium: "5"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.hard["requests.storage"]
+          transforms:
+            - type: map
+              map:
+                small: 10Gi
+                medium: 30Gi
+
+    # -----------------------------------------------------------------------
+    # 3. LimitRange — per-container defaults; max tier-dependent
+    # -----------------------------------------------------------------------
+    # defaultRequest/default/min are constant across tiers; only max varies.
+    # Chart pods set their own resources explicitly, so these defaults act as
+    # a safety net for ad-hoc pods that don't.
+    - name: limit-range
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: LimitRange
+              metadata:
+                name: tenant-limits
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                limits:
+                  - type: Container
+                    defaultRequest:
+                      cpu: 50m
+                      memory: 64Mi
+                    default:
+                      cpu: 250m
+                      memory: 256Mi
+                    min:
+                      cpu: 10m
+                      memory: 32Mi
+                    # Base values mirror the small tier; medium overrides via
+                    # tier-map patches below.
+                    max:
+                      cpu: 500m
+                      memory: 512Mi
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.limits[0].max.cpu
+          transforms:
+            - type: map
+              map:
+                small: 500m
+                medium: "1"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.tier
+          toFieldPath: spec.forProvider.manifest.spec.limits[0].max.memory
+          transforms:
+            - type: map
+              map:
+                small: 512Mi
+                medium: 1Gi
