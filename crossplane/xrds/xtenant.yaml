@@ -1,0 +1,70 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xtenants.platform.fhuebung.lol
+spec:
+  group: platform.fhuebung.lol
+  names:
+    kind: XTenant
+    plural: xtenants
+  claimNames:
+    kind: Tenant
+    plural: tenants
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              additionalProperties: false
+              required:
+                - name
+                - tier
+              properties:
+                name:
+                  type: string
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                  minLength: 1
+                  maxLength: 63
+                  description: >-
+                    Tenant identifier. Used as the namespace name, DNS subdomain
+                    (<name>.fhuebung.lol), and resource name prefix. Must satisfy
+                    the DNS-1123 label format (RFC 1123).
+                tier:
+                  type: string
+                  enum:
+                    - small
+                    - medium
+                  description: >-
+                    Resource sizing tier. Consumed by the Composition to set
+                    ResourceQuota and LimitRange values per tenant namespace.
+                version:
+                  type: string
+                  description: >-
+                    Helm chart version to deploy for this tenant. When absent,
+                    the Composition falls back to the central chart version in
+                    values/app-version.yaml.
+                imageTagOverride:
+                  type: object
+                  additionalProperties: false
+                  description: >-
+                    Per-tenant image tag overrides. Either or both sub-fields
+                    may be set; unset sub-fields fall back to the central tags
+                    in values/app-version.yaml. Used by the staging tenant to
+                    receive new versions before the global rollout.
+                  properties:
+                    backend:
+                      type: string
+                      description: >-
+                        Override tag for the backend image
+                        (ghcr.io/ineni-pt-group-b/app-backend).
+                    frontend:
+                      type: string
+                      description: >-
+                        Override tag for the frontend image
+                        (ghcr.io/ineni-pt-group-b/app-frontend).
