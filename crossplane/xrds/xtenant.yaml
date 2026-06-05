@@ -21,15 +21,20 @@ spec:
           properties:
             spec:
               type: object
+              additionalProperties: false
               required:
                 - name
                 - tier
               properties:
                 name:
                   type: string
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                  minLength: 1
+                  maxLength: 63
                   description: >-
                     Tenant identifier. Used as the namespace name, DNS subdomain
-                    (<name>.fhuebung.lol), and resource name prefix.
+                    (<name>.fhuebung.lol), and resource name prefix. Must satisfy
+                    the DNS-1123 label format (RFC 1123).
                 tier:
                   type: string
                   enum:
@@ -46,6 +51,7 @@ spec:
                     values/app-version.yaml.
                 imageTagOverride:
                   type: object
+                  additionalProperties: false
                   description: >-
                     Per-tenant image tag overrides. Either or both sub-fields
                     may be set; unset sub-fields fall back to the central tags
