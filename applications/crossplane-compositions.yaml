@@ -1,0 +1,48 @@
+---
+# Argo CD Application syncing the Crossplane Compositions in this repo
+# (crossplane/compositions/ — first content added by S3-02 #38; subsequent
+# Sprint 3 tasks S3-03 through S3-06 extend the same xtenant-default.yaml
+# file rather than adding new Composition files, see #38 Notes).
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# Compositions here depend on both the apiextensions.crossplane.io CRDs
+# installed by the Crossplane core Application (applications/crossplane.yaml)
+# and on the XRDs reconciled by applications/crossplane-xrds.yaml.
+# SkipDryRunOnMissingResource plus the retry and selfHeal policy let this app
+# converge once those exist, instead of coupling it to a hard sync-wave. Same
+# pattern as applications/crossplane-providers.yaml,
+# applications/crossplane-providerconfigs.yaml and
+# applications/crossplane-xrds.yaml.
+#
+# The directory may be empty until #38 merges; Argo CD treats an empty source
+# as in-sync.
+#
+# namespace (argocd), project (default) and repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-compositions
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: crossplane/compositions
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true

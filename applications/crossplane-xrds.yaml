@@ -1,0 +1,41 @@
+---
+# Argo CD Application syncing the Crossplane XRDs in this repo
+# (crossplane/xrds/xtenant.yaml — added in S3-01, #46).
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The XRDs
+# here depend on the apiextensions.crossplane.io CRDs installed by the Crossplane
+# core Application (applications/crossplane.yaml). SkipDryRunOnMissingResource
+# plus the retry and selfHeal policy let this app converge once those CRDs exist,
+# instead of coupling it to a hard sync-wave. Same pattern as
+# applications/crossplane-providers.yaml and
+# applications/crossplane-providerconfigs.yaml.
+#
+# namespace (argocd), project (default) and repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-xrds
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: crossplane/xrds
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
