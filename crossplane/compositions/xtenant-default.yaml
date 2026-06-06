@@ -15,11 +15,26 @@
 #     egress with DNS allow to kube-system, permissive in-namespace app ↔ DB
 #     on TCP 5432, and allow ingress from the traefik namespace to app pods
 #     on TCP 80 / 3000.
+#   - S3-05 BasicAuth + GHCR pull: ESO Password generator + Sprig htpasswd
+#     ExternalSecret (crossplane-system) → Crossplane Secret + SecretVersion
+#     via provider-gcp-secretmanager (GSM `tenant-<spec.name>-basicauth-htpasswd`)
+#     → ExternalSecret in tenant-ns materialising the K8s Secret with the
+#     `users` key → Traefik BasicAuth Middleware referencing it. A second
+#     ExternalSecret materialises the shared `shared-ghcr-pull-secret` from
+#     GSM into each tenant-ns as `ghcr-pull-secret` (dockerconfigjson) for
+#     the private frontend image pull. The shared GSM entry is seeded by
+#     INENI-PT-GROUP-B/platform-iac#55.
 #
-# All resources are rendered via provider-kubernetes
+# All Kubernetes resources are rendered via provider-kubernetes
 # (kubernetes.crossplane.io/v1alpha2 Object) using ProviderConfig "default"
 # (InjectedIdentity, cluster-admin RBAC; see crossplane/providers/
-# provider-config-kubernetes.yaml).
+# provider-config-kubernetes.yaml). The S3-05 GSM Secret + SecretVersion
+# use provider-gcp-secretmanager directly via its
+# `secretmanager.gcp.upbound.io` CRDs (architecture-decisions.md § Crossplane
+# providers states `secret.gcp.upbound.io` — that's the wrong subdomain;
+# verified against v2.5.0 source examples and noted in the follow-up
+# doc-sync PR), authenticated through the `provider-gcp` DRC's KSA / GSA
+# pair set up in S1-08 + S2-10.
 #
 # Tier semantics: spec.tier (small|medium) drives the ResourceQuota quantities
 # and LimitRange.max per container; defaultRequest/default/min stay constant
@@ -399,3 +414,340 @@ spec:
             - type: string
               string:
                 fmt: "tenant-%s"
+
+    # -----------------------------------------------------------------------
+    # 8. Password generator — ESO Password CR in crossplane-system
+    # -----------------------------------------------------------------------
+    # Config CR consumed by resource 9 via dataFrom.sourceRef. ESO calls the
+    # generator at ExternalSecret reconciliation time to produce a `password`
+    # key in the template context — the Password CR itself does not own a
+    # separate K8s Secret. Resource 9's Sprig htpasswd template then hashes
+    # that value into the htpasswd line stored in the target Secret.
+    #
+    # Re-onboarding a tenant (XR delete + recreate) or rebuilding the cluster
+    # produces a fresh random password — accepted trade-off, since the ADR
+    # § Secrets management does not promise persistence for the BasicAuth
+    # secret (unlike the DNS zone or state bucket). length 32 / no symbols
+    # is a deliberate choice for log-readability; bcrypt caps input at 72
+    # bytes so deeper headroom is unnecessary.
+    - name: basicauth-password-generator
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: generators.external-secrets.io/v1alpha1
+              kind: Password
+              metadata:
+                # patched from spec.name → "tenant-<name>-password-gen"
+                name: ""
+                namespace: crossplane-system
+              spec:
+                length: 32
+                digits: 8
+                symbols: 0
+                noUpper: false
+                allowRepeat: true
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-password-gen"
+
+    # -----------------------------------------------------------------------
+    # 9. htpasswd ExternalSecret — bcrypt via Sprig htpasswd template
+    # -----------------------------------------------------------------------
+    # Consumes the Password generator from resource 8 (key `password`) and
+    # renders the htpasswd line `admin:$2a$...` into a K8s Secret with the
+    # `users` key — the format Traefik's BasicAuth Middleware expects.
+    # This Secret in crossplane-system is the source resource 11 reads to
+    # write the SecretVersion into GSM. ESO templates expose the full Sprig
+    # function set; `htpasswd "user" "pwd"` is Sprig's bcrypt-hashed htpasswd
+    # generator (returns the `user:$2a$10$...` line directly).
+    # refreshInterval 0 = run once; the generator's output only changes on
+    # cluster rebuild, refreshing here would be wasted work.
+    - name: basicauth-htpasswd-source
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                # patched from spec.name → "tenant-<name>-htpasswd-source"
+                name: ""
+                namespace: crossplane-system
+              spec:
+                refreshInterval: "0"
+                target:
+                  # patched from spec.name → "tenant-<name>-htpasswd-source"
+                  name: ""
+                  creationPolicy: Owner
+                  template:
+                    engineVersion: v2
+                    data:
+                      users: |-
+                        {{ htpasswd "admin" .password "bcrypt" }}
+                dataFrom:
+                  - sourceRef:
+                      generatorRef:
+                        apiVersion: generators.external-secrets.io/v1alpha1
+                        kind: Password
+                        # patched from spec.name → "tenant-<name>-password-gen"
+                        name: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-htpasswd-source"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.target.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-htpasswd-source"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.dataFrom[0].sourceRef.generatorRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-password-gen"
+
+    # -----------------------------------------------------------------------
+    # 10. GSM Secret — container (provider-gcp-secretmanager)
+    # -----------------------------------------------------------------------
+    # Creates the Google Secret Manager secret container that holds the
+    # tenant's htpasswd. Idempotent by external-name: a cluster rebuild
+    # re-adopts the existing GSM container instead of recreating it.
+    # deletionPolicy: Orphan keeps the GSM container after the XR is deleted,
+    # so a re-onboarded tenant of the same name can be granted a fresh
+    # password version without losing audit history. Replication: automatic
+    # (Google chooses regions) — the v1beta1 CRD spells this as
+    # `replication[].auto: [{}]`; v1beta2 uses a flat `replication.automatic`
+    # form. We stay on v1beta1 because its `secretDataSecretRef` shape on
+    # the SecretVersion is the verified contract.
+    # GSM secret IDs must match `^[a-zA-Z][a-zA-Z0-9_-]{0,254}$` — slashes
+    # are not allowed, so the documented `tenant-<name>/basicauth-htpasswd`
+    # form is realised with dashes here; doc-sync PR to follow.
+    - name: gsm-basicauth-secret
+      base:
+        apiVersion: secretmanager.gcp.upbound.io/v1beta1
+        kind: Secret
+        spec:
+          providerConfigRef:
+            name: default
+          deletionPolicy: Orphan
+          forProvider:
+            replication:
+              - auto:
+                  - {}
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: metadata.annotations["crossplane.io/external-name"]
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-basicauth-htpasswd"
+
+    # -----------------------------------------------------------------------
+    # 11. GSM SecretVersion — writes the htpasswd payload
+    # -----------------------------------------------------------------------
+    # Sibling-resource ref via matchControllerRef:true selects the GSM
+    # Secret (resource 10) created by the same XR — no name patch needed.
+    # Payload is read from the in-cluster K8s Secret produced by resource 9
+    # (key `users` carries the `admin:$2a$...` htpasswd line).
+    # deletionPolicy: Orphan keeps the version in GSM after XR deletion.
+    - name: gsm-basicauth-secretversion
+      base:
+        apiVersion: secretmanager.gcp.upbound.io/v1beta1
+        kind: SecretVersion
+        spec:
+          providerConfigRef:
+            name: default
+          deletionPolicy: Orphan
+          forProvider:
+            secretSelector:
+              matchControllerRef: true
+            secretDataSecretRef:
+              namespace: crossplane-system
+              # patched from spec.name → "tenant-<name>-htpasswd-source"
+              name: ""
+              key: users
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.secretDataSecretRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-htpasswd-source"
+
+    # -----------------------------------------------------------------------
+    # 12. BasicAuth ExternalSecret — materialise htpasswd into tenant-ns
+    # -----------------------------------------------------------------------
+    # Pulls the htpasswd from GSM into a K8s Secret in the tenant namespace.
+    # Key `users` (Traefik's BasicAuth Middleware contract); referenced by
+    # resource 14. Refresh hourly so a tenant-side password rotation (manual
+    # GSM update) propagates without intervention.
+    - name: basicauth-externalsecret
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: basicauth
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                refreshInterval: 1h
+                secretStoreRef:
+                  kind: ClusterSecretStore
+                  name: gcp-secret-manager
+                target:
+                  # patched from spec.name → "tenant-<name>-basicauth"
+                  name: ""
+                  creationPolicy: Owner
+                data:
+                  - secretKey: users
+                    remoteRef:
+                      # patched from spec.name → "tenant-<name>-basicauth-htpasswd"
+                      key: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.target.name
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-basicauth"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.data[0].remoteRef.key
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-basicauth-htpasswd"
+
+    # -----------------------------------------------------------------------
+    # 13. GHCR-pull ExternalSecret — shared GSM entry → per-tenant dockerconfig
+    # -----------------------------------------------------------------------
+    # Materialises the shared GHCR pull credential into each tenant namespace
+    # as a dockerconfigjson Secret named `ghcr-pull-secret`, consumed by the
+    # Helm Release in S3-06 as imagePullSecret for the private frontend
+    # image. The GSM source `shared-ghcr-pull-secret` is seeded once by the
+    # bootstrap script — see INENI-PT-GROUP-B/platform-iac#55. Until that
+    # entry exists in GSM this ExternalSecret stays in SecretSyncedError;
+    # tenants without the seed cannot pull the frontend, but the rest of
+    # the tenant namespace (BasicAuth, DB, backend) comes up regardless.
+    # remoteRef.key is constant across tenants — no patch.
+    - name: ghcr-pull-externalsecret
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: external-secrets.io/v1
+              kind: ExternalSecret
+              metadata:
+                name: ghcr-pull
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                refreshInterval: 1h
+                secretStoreRef:
+                  kind: ClusterSecretStore
+                  name: gcp-secret-manager
+                target:
+                  name: ghcr-pull-secret
+                  creationPolicy: Owner
+                  template:
+                    type: kubernetes.io/dockerconfigjson
+                    data:
+                      .dockerconfigjson: "{{ .dockerconfigjson }}"
+                data:
+                  - secretKey: dockerconfigjson
+                    remoteRef:
+                      key: shared-ghcr-pull-secret
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+
+    # -----------------------------------------------------------------------
+    # 14. Traefik BasicAuth Middleware — wires the htpasswd Secret
+    # -----------------------------------------------------------------------
+    # References the K8s Secret produced by resource 12. The tenant Ingress
+    # (S3-06) carries the annotation
+    #   traefik.ingress.kubernetes.io/router.middlewares: tenant-<name>-basicauth@kubernetescrd
+    # which Traefik resolves as `<namespace>-<name>@kubernetescrd` —
+    # i.e. namespace `tenant-<name>` + Middleware name `basicauth`.
+    - name: basicauth-middleware
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: traefik.io/v1alpha1
+              kind: Middleware
+              metadata:
+                name: basicauth
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                basicAuth:
+                  # patched from spec.name → "tenant-<name>-basicauth"
+                  secret: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.basicAuth.secret
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-basicauth"
