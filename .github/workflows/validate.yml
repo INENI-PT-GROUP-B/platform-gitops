@@ -149,6 +149,8 @@ jobs:
       #   crossplane/providers/     — Crossplane ProviderConfig + DeploymentRuntimeConfig (CRDs)
       #   crossplane/xrds/          — CompositeResourceDefinition CRs (S3-01ff.), schema from datreeio catalog
       #   crossplane/compositions/  — Composition CRs (S3-02ff.), schema from datreeio catalog
+      #   crossplane/configmaps/    — central tenant-app version ConfigMap consumed by the
+      #                               Helm Release composition (S3-06), core/v1 schema
       #   monitoring/               — ESO ExternalSecret for Grafana admin (S4-01), schema from datreeio catalog
       #   monitoring/dashboards/    — Grafana dashboard ConfigMaps (S4-02), core/v1 schema
       #   tenants/                  — XR claims (XTenant), schema added in Sprint 3
@@ -171,6 +173,7 @@ jobs:
             crossplane/providers
             crossplane/xrds
             crossplane/compositions
+            crossplane/configmaps
             external-secrets
             monitoring
             monitoring/dashboards

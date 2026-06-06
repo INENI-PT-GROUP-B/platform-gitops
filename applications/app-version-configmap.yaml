@@ -1,0 +1,45 @@
+---
+# Argo CD Application syncing the central tenant-app version ConfigMap
+# (crossplane/configmaps/app-version-cm.yaml) into crossplane-system.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# ConfigMap has no CRD dependency, but it lives in the `crossplane-system`
+# namespace which is created by the Crossplane install Application
+# (applications/crossplane.yaml). The retry / selfHeal policy lets this app
+# converge regardless of sync order — no hard sync-wave needed. Same shape as
+# applications/external-secrets-clustersecretstore.yaml.
+#
+# The ConfigMap is consumed by the per-tenant Helm Release in
+# crossplane/compositions/xtenant-default.yaml (resource 15) via
+# `set[].valueFrom.configMapKeyRef`. Bumping a rollout edits both this file's
+# upstream (values/app-version.yaml + crossplane/configmaps/app-version-cm.yaml)
+# in a single PR; existing tenant Releases re-reconcile on the next sync.
+#
+# namespace (argocd), project (default) and repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-01).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tenant-app-defaults
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: crossplane/configmaps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - ServerSideApply=true
