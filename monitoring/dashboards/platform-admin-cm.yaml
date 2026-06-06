@@ -1,0 +1,143 @@
+---
+# yamllint disable rule:line-length
+# Embedded JSON inside the `data:` block contains PromQL expressions that
+# exceed 120 chars; JSON string literals cannot be wrapped across YAML lines
+# (a newline inside the quoted value breaks JSON parsing). Splitting them
+# would require recording rules in prometheus values — out of scope here.
+# Grafana dashboard ConfigMap: Platform-Admin View (S4-02).
+#
+# Cluster-wide signals using only the metric sources live at merge time:
+# kube-state-metrics (in `monitoring`, watches the K8s API — sees tenant
+# resources without crossing tenant NetworkPolicies) and node-exporter
+# (runs on every node, scraped by Prometheus over the kubelet network).
+#
+# Picked up by Grafana's dashboard sidecar via the `grafana_dashboard: "1"`
+# label (see values/kube-prometheus-stack.yaml § grafana.sidecar.dashboards).
+# The JSON below is the Grafana v11 dashboard model — hand-authored small so a
+# future reviewer can read the diff; not exported from a live Grafana (a live
+# export would carry instance-specific UIDs and panel IDs that obscure intent).
+#
+# Datasource UID `prometheus` is the kube-prometheus-stack default; if that
+# default ever changes, both this dashboard and app-owner-cm.yaml must update
+# in lockstep.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-platform-admin
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  platform-admin.json: |-
+    {
+      "annotations": {"list": []},
+      "editable": false,
+      "graphTooltip": 0,
+      "schemaVersion": 39,
+      "tags": ["platform", "admin", "s4-02"],
+      "time": {"from": "now-1h", "to": "now"},
+      "timezone": "",
+      "title": "Platform Admin — Cluster Overview",
+      "uid": "platform-admin",
+      "version": 1,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Node CPU utilisation",
+          "id": 1,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "{{instance}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Node memory utilisation",
+          "id": 2,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+            "legendFormat": "{{instance}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Running pods per namespace",
+          "id": 3,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "count by (namespace) (kube_pod_info)",
+            "legendFormat": "{{namespace}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "PVC usage by namespace",
+          "id": 4,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
+            "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "ResourceQuota CPU usage vs. hard limit (used / hard)",
+          "id": 5,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "kube_resourcequota{resource=\"requests.cpu\",type=\"used\"} / on (namespace, resourcequota) kube_resourcequota{resource=\"requests.cpu\",type=\"hard\"}",
+            "legendFormat": "{{namespace}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "ResourceQuota memory usage vs. hard limit (used / hard)",
+          "id": 6,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "kube_resourcequota{resource=\"requests.memory\",type=\"used\"} / on (namespace, resourcequota) kube_resourcequota{resource=\"requests.memory\",type=\"hard\"}",
+            "legendFormat": "{{namespace}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Cluster pod phase distribution",
+          "id": 7,
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum by (phase) (kube_pod_status_phase)",
+            "legendFormat": "{{phase}}"
+          }]
+        }
+      ]
+    }
