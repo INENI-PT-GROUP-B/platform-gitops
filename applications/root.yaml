@@ -10,7 +10,9 @@
 # CONTRACT WITH S2-01: the spec below MUST stay spec-identical to
 # platform-iac/bootstrap/argocd-bootstrap.yaml. Any spec divergence leaves the
 # root permanently OutOfSync — selfHeal would fight the bootstrap's apply on
-# every re-run. The metadata.finalizers entry is an intentional git-side-only
+# every re-run. Enforced pre-merge by .github/workflows/root-app-spec-identity.yml
+# (caller of the org-wide reusable defined in INENI-PT-GROUP-B/.github). See #29.
+# The metadata.finalizers entry is an intentional git-side-only
 # addition: the bootstrap's `kubectl apply --server-side` of the finalizer-free
 # object does not manage finalizers, so the field added here survives every
 # bootstrap re-run. The resources-finalizer makes deleting the root

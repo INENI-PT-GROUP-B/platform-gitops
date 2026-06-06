@@ -1,0 +1,25 @@
+name: Root App Spec Identity
+
+# Caller for the org-wide reusable check
+# (INENI-PT-GROUP-B/.github/.github/workflows/root-app-spec-identity-reusable.yml).
+#
+# Fails any PR that would make `applications/root.yaml`'s spec block diverge
+# from `bootstrap/argocd-bootstrap.yaml`'s spec block in platform-iac. The two
+# manifests define the same Argo CD root Application-of-Apps and must stay in
+# lockstep — see #29 for the rationale.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "applications/root.yaml"
+      - ".github/workflows/root-app-spec-identity.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: INENI-PT-GROUP-B/.github/.github/workflows/root-app-spec-identity-reusable.yml@main
+    with:
+      pr-side: platform-gitops
