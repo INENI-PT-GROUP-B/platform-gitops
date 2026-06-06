@@ -1,0 +1,130 @@
+---
+# Helm values for the kube-prometheus-stack platform component, consumed by the
+# applications/kube-prometheus-stack.yaml Argo CD Application (multi-source
+# $values ref).
+#
+# Scope: the only bonus task we pursue — basic in-cluster monitoring for both
+# platform admins and tenant app owners (architecture-decisions.md § Monitoring).
+# Sized for the academic-scope platform (~5 tenants on 3-6x e2-standard-4):
+# single replica per component, memory hard-limited to bound the OOM blast
+# radius, CPU left without a limit to avoid throttling — same convention as
+# values/cert-manager.yaml and values/traefik.yaml.
+
+# --- Prometheus -------------------------------------------------------------
+# 15-day retention on a 20Gi PVC (S4-01). storageClassName is the GKE default
+# balanced-PD class; switch to premium-rwo (SSD) only if scrape volume grows.
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard-rwo
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # Discover ServiceMonitors/PodMonitors across ALL namespaces, not just those
+    # carrying the chart's release label — tenant namespaces created by
+    # Crossplane (S3-02ff.) must be scrapeable without relabelling.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+# --- Grafana ----------------------------------------------------------------
+# Exposed at grafana.fhuebung.lol via Traefik. No per-host Certificate: the
+# host is a single subdomain level, so Traefik's default TLS store serves it the
+# wildcard `*.fhuebung.lol` cert (values/traefik.yaml § tlsStore). The Ingress
+# carries an empty `tls:` host entry so the route binds to the websecure (:443)
+# entrypoint and picks up the default cert.
+#
+# OPEN ITEM (flag for review): values/cert-manager.yaml's header says cert-manager
+# issues a *per-host* cert for grafana.fhuebung.lol, but S4-01 and
+# architecture-decisions.md § Ingress both specify *wildcard* TLS. This file
+# follows the task + architecture (wildcard). Reconcile the cert-manager comment
+# in the same PR or a follow-up.
+grafana:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.fhuebung.lol
+    tls:
+      - hosts:
+          - grafana.fhuebung.lol
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  # Admin credentials come from a Secret, never plaintext here (no-secrets rule,
+  # CONTRIBUTING.md § Secrets). The chart default `admin/prom-operator` is
+  # unacceptable for an internet-exposed host. The Secret `grafana-admin-credentials`
+  # is materialised in the `monitoring` namespace by the ESO ExternalSecret in
+  # monitoring/grafana-admin-externalsecret.yaml (synced by the sibling
+  # Application applications/kube-prometheus-stack-secrets.yaml), pulling from
+  # the GSM secret `grafana-admin` via the gcp-secret-manager ClusterSecretStore.
+  # Keys admin-user / admin-password match the chart's userKey / passwordKey.
+  admin:
+    existingSecret: grafana-admin-credentials
+    userKey: admin-user
+    passwordKey: admin-password
+
+# --- Alertmanager -----------------------------------------------------------
+# Enabled for completeness; no external receivers wired in academic scope
+# (default null receiver). Memory-bounded like the rest.
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+# --- prometheus-operator ----------------------------------------------------
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+# --- kube-state-metrics / node-exporter -------------------------------------
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+# --- GKE control-plane scrape targets: OFF ----------------------------------
+# GKE Standard runs a managed control plane and does NOT expose these component
+# endpoints to workloads. Leaving the default ServiceMonitors enabled ships
+# permanently-failing scrape targets and noisy "TargetDown" alerts. Disable them;
+# control-plane health stays observable passively via GKE Cloud Monitoring
+# (architecture-decisions.md § Monitoring).
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false

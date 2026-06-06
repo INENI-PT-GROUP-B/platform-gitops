@@ -149,6 +149,7 @@ jobs:
       #   crossplane/providers/     — Crossplane ProviderConfig + DeploymentRuntimeConfig (CRDs)
       #   crossplane/xrds/          — CompositeResourceDefinition CRs (S3-01ff.), schema from datreeio catalog
       #   crossplane/compositions/  — Composition CRs (S3-02ff.), schema from datreeio catalog
+      #   monitoring/               — ESO ExternalSecret for Grafana admin (S4-01), schema from datreeio catalog
       #   tenants/                  — XR claims (XTenant), schema added in Sprint 3
       #   traefik/                  — wildcard Certificate (S2-06), schema from datreeio catalog
       - name: Run kubeconform
@@ -164,7 +165,7 @@ jobs:
           # is included even if it does not exist yet (added by S2-03); kubeconform tolerates
           # missing directories silently. Skip with `if [ -d ]` guards is not needed.
           paths=()
-          for d in applications cert-manager crossplane/providers crossplane/xrds crossplane/compositions external-secrets tenants traefik; do
+          for d in applications cert-manager crossplane/providers crossplane/xrds crossplane/compositions external-secrets monitoring tenants traefik; do
             if [[ -d "$d" ]]; then
               paths+=("$d")
             fi

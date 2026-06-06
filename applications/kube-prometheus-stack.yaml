@@ -1,0 +1,70 @@
+---
+# Argo CD Application deploying the upstream kube-prometheus-stack Helm chart
+# with the platform values in values/kube-prometheus-stack.yaml. Multi-source:
+# the chart comes from its Helm repo, the values file from this git repo via the
+# $values ref. Same pattern as applications/cert-manager.yaml,
+# applications/external-secrets.yaml and applications/traefik.yaml.
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# chart version is pinned per the CI/tooling version-pinning convention
+# (CONTRIBUTING.md § Tool Versions in CI); upgrades go through an explicit PR.
+#
+# This is the project's only bonus task: basic in-cluster monitoring
+# (Prometheus + Grafana + Alertmanager + node-exporter + kube-state-metrics).
+# Grafana is exposed at grafana.fhuebung.lol through Traefik, served the
+# wildcard `*.fhuebung.lol` cert from Traefik's default TLS store
+# (traefik/certificate.yaml) — no per-host Certificate. See S4-01.
+#
+# ServerSideApply: the prometheus-operator CRDs shipped by this chart are large
+# enough to blow the 256KB client-side apply annotation limit, exactly like the
+# ESO CRDs (see applications/external-secrets.yaml). SSA keeps them clear.
+#
+# CreateNamespace: the `monitoring` namespace is created by this Application
+# (no separate namespace manifest), consistent with cert-manager / ESO / traefik.
+#
+# TODO(S4-01): the GKE control-plane components (kube-controller-manager,
+# kube-scheduler, kube-etcd, kube-proxy) are NOT scrapeable on GKE Standard —
+# their ServiceMonitors are disabled in values/kube-prometheus-stack.yaml so the
+# stack does not ship permanently-failing scrape targets. Verify against the
+# live cluster on first sync; managed control-plane metrics stay available
+# passively via Cloud Monitoring (architecture-decisions.md § Monitoring).
+#
+# namespace (argocd), project (default) and the git repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      # Pinned per the version-pinning convention (CONTRIBUTING.md § Tool
+      # Versions in CI); upgrades go through an explicit PR. Resolved via
+      # `helm search repo prometheus-community/kube-prometheus-stack`
+      # (chart 86.1.1 ships prometheus-operator app v0.91.0).
+      targetRevision: 86.1.1
+      helm:
+        valueFiles:
+          - $values/values/kube-prometheus-stack.yaml
+    - repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
