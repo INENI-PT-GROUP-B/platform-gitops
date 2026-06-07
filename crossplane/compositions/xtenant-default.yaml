@@ -24,6 +24,14 @@
 #     GSM into each tenant-ns as `ghcr-pull-secret` (dockerconfigjson) for
 #     the private frontend image pull. The shared GSM entry is seeded by
 #     INENI-PT-GROUP-B/platform-iac#55.
+#   - S3-06 Helm Release: a `helm.crossplane.io/v1beta1 Release` rendering
+#     `ghcr.io/ineni-pt-group-b/app-chart` into the tenant namespace with the
+#     central image tags from the `tenant-app-defaults` ConfigMap in
+#     crossplane-system (synced from `values/app-version.yaml` by Argo CD).
+#     Per-tenant `spec.imageTagOverride.{backend,frontend}` overrides win
+#     over the central tags because they are applied as later `set[]`
+#     overrides; the chart is a public OCI artefact, so no chart pull
+#     secret is required.
 #
 # All Kubernetes resources are rendered via provider-kubernetes
 # (kubernetes.crossplane.io/v1alpha2 Object) using ProviderConfig "default"
@@ -751,3 +759,182 @@ spec:
             - type: string
               string:
                 fmt: "tenant-%s-basicauth"
+
+    # -----------------------------------------------------------------------
+    # 15. Helm Release — the tenant app
+    # -----------------------------------------------------------------------
+    # Renders ghcr.io/ineni-pt-group-b/app-chart into the tenant namespace via
+    # provider-helm (helm.crossplane.io/v1beta1 Release, ProviderConfig
+    # `default`, InjectedIdentity — see crossplane/providers/
+    # provider-config-helm.yaml). Chart is a public OCI artefact so no
+    # `chart.pullSecretRef` is needed.
+    #
+    # Image-tag sourcing — three-layer precedence:
+    #   1. Chart default (image.*.repository) — kept as chart concern, not
+    #      overridden here.
+    #   2. Central per-rollout tag — read from the ConfigMap `tenant-app-defaults`
+    #      in crossplane-system via `set[].valueFrom.configMapKeyRef`. The
+    #      ConfigMap mirrors `values/app-version.yaml` and is synced by the
+    #      `tenant-app-defaults` Argo CD Application (applications/
+    #      app-version-configmap.yaml). Bumping a rollout = one PR editing
+    #      both files in lockstep.
+    #   3. Per-tenant override — `spec.imageTagOverride.{backend,frontend}` on
+    #      the claim. Applied as later `set[]` entries that beat the central
+    #      tag for that one tenant; missing fields produce no patch and the
+    #      central tag wins. The staging tenant uses this to receive new
+    #      versions before the central rollout (architecture-decisions.md
+    #      § Application updates and staging).
+    #
+    # `chart.version` is a CRD-required field on the Release; it cannot be
+    # sourced from a ConfigMap and is fed by the patch from `spec.version` on
+    # the claim. Tenants without a `version` override get the chart version
+    # baked into the Composition base, which is bumped in the same PR as
+    # values/app-version.yaml. (The ConfigMap mechanism for image tags is
+    # used because `set[]` accepts `valueFrom` whereas `chart.version` does
+    # not — see helm.crossplane.io_releases.yaml CRD schema.)
+    #
+    # rollbackLimit: 3 — Crossplane retries a failed Helm upgrade up to three
+    # times by rolling back to the previous release before giving up. Matches
+    # the per-tenant blast radius (one tenant stuck does not gate other
+    # tenants).
+    #
+    # No NetworkPolicy / pull-secret / ingress concerns here — Resources 4-7
+    # already cover the network rules, Resource 13 supplies `ghcr-pull-secret`
+    # for the private frontend image (chart default `imagePullSecrets` already
+    # points at that name), and the chart renders its own Ingress carrying the
+    # BasicAuth middleware annotation patched below.
+    #
+    # Database: the chart consumes `db.secretName`, which points at the
+    # CloudNativePG-generated credentials Secret next to the tenant `Cluster`.
+    # The CNPG Cluster itself is provisioned by S3-04 (a future Resource
+    # appended to this same file). Until S3-04 lands the Release will sit in
+    # a transient "secret not found" state — expected and self-healing once
+    # the DB Composition is in place.
+    - name: helm-release
+      base:
+        apiVersion: helm.crossplane.io/v1beta1
+        kind: Release
+        spec:
+          providerConfigRef:
+            name: default
+          rollbackLimit: 3
+          forProvider:
+            # patched from spec.name → "tenant-<name>"
+            namespace: ""
+            chart:
+              name: app-chart
+              repository: oci://ghcr.io/ineni-pt-group-b
+              # patched from spec.version when set; falls back to the value
+              # baked here, which is bumped in lockstep with
+              # values/app-version.yaml.
+              version: "0.1.0"
+            values:
+              # patched from spec.name (verbatim)
+              tenant: ""
+              # patched from spec.name → "<name>.fhuebung.lol"
+              host: ""
+              db:
+                # patched from spec.name → "<name>-cluster-app"
+                # (CloudNativePG-generated credentials Secret; created by S3-04)
+                secretName: ""
+              ingress:
+                # patched from spec.name →
+                #   "tenant-<name>-basicauth@kubernetescrd"
+                # (matches Middleware created by Resource 14)
+                basicAuthMiddlewareRef: ""
+            set:
+              # Central image tags from `tenant-app-defaults` ConfigMap. The
+              # per-tenant override entries — if any — are appended at
+              # set[2]/set[3] by the patches below (policy.fromFieldPath:
+              # Optional). Entry order matters: provider-helm applies set[]
+              # in declaration order, so a later entry for the same key
+              # wins. Empty placeholders are NOT allowed here —
+              # provider-helm's composeValuesFromSpec rejects any Set entry
+              # with Value=="" && ValueFrom==nil with `errMissingValueForSet`
+              # (pkg/controller/cluster/release/values.go:79-81 @ v1.2.0).
+              - name: image.backend.tag
+                valueFrom:
+                  configMapKeyRef:
+                    name: tenant-app-defaults
+                    namespace: crossplane-system
+                    key: backend
+              - name: image.frontend.tag
+                valueFrom:
+                  configMapKeyRef:
+                    name: tenant-app-defaults
+                    namespace: crossplane-system
+                    key: frontend
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.values.tenant
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.values.host
+          transforms:
+            - type: string
+              string:
+                fmt: "%s.fhuebung.lol"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.values.db.secretName
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cluster-app"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.values.ingress.basicAuthMiddlewareRef
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s-basicauth@kubernetescrd"
+        # Per-tenant chart-version override (optional). Missing source = no-op
+        # → the chart.version baked into base wins.
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.version
+          toFieldPath: spec.forProvider.chart.version
+        # Per-tenant image-tag overrides. Append a fresh set[] entry at
+        # index 2 (backend) or 3 (frontend) only when the override is set on
+        # the claim. The pattern is: one patch creates `name` (a constant
+        # string via the Format transform, gated by the same source), the
+        # other creates `value`. Both carry policy.fromFieldPath: Optional,
+        # so a missing source skips them silently — no half-formed Set entry
+        # is materialised and provider-helm never sees an entry with
+        # Value=="" (which would trigger errMissingValueForSet, see set[]
+        # comment in base).
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.imageTagOverride.backend
+          toFieldPath: spec.forProvider.set[2].name
+          policy:
+            fromFieldPath: Optional
+          transforms:
+            - type: string
+              string:
+                fmt: "image.backend.tag"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.imageTagOverride.backend
+          toFieldPath: spec.forProvider.set[2].value
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.imageTagOverride.frontend
+          toFieldPath: spec.forProvider.set[3].name
+          policy:
+            fromFieldPath: Optional
+          transforms:
+            - type: string
+              string:
+                fmt: "image.frontend.tag"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.imageTagOverride.frontend
+          toFieldPath: spec.forProvider.set[3].value
+          policy:
+            fromFieldPath: Optional

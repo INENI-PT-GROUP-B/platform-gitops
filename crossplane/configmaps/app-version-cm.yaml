@@ -1,0 +1,31 @@
+---
+# ConfigMap exposing the central tenant-app image tags to the Crossplane
+# Composition (xtenant-default.yaml resource 15 — Helm Release). The Release
+# reads `backend` and `frontend` via `set[].valueFrom.configMapKeyRef`; per-
+# tenant `spec.imageTagOverride.{backend,frontend}` patches beat these.
+#
+# Source of truth for the values: `values/app-version.yaml`. Keep this file in
+# lockstep with that one — bumping a rollout means a single PR that edits both:
+#
+#   values/app-version.yaml      images.{backend,frontend}, chart.version
+#   crossplane/configmaps/...    data.{backend,frontend}, comment chart.version
+#
+# Why duplicated: provider-helm `Release` cannot read files from git, only
+# Kubernetes ConfigMaps / Secrets. Argo CD's $values multi-source ref only
+# works for Helm-chart Applications, not for Crossplane-rendered Releases.
+# The duplication is the bridge between operator-facing rollout file and the
+# in-cluster ConfigMap the Release dereferences.
+#
+# `chart.version` for the Release is not exposed here — provider-helm requires
+# it as a static field on the Release CRD; the Composition bakes the current
+# value into resource 15's base block and bumps it in the same PR.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tenant-app-defaults
+  namespace: crossplane-system
+data:
+  # Must match images.backend in values/app-version.yaml.
+  backend: "v0.1.0"
+  # Must match images.frontend in values/app-version.yaml.
+  frontend: "v0.1.0"
