@@ -76,6 +76,28 @@ grafana:
     existingSecret: grafana-admin-credentials
     userKey: admin-user
     passwordKey: admin-password
+  # Dashboard sidecar (S4-02): the chart ships a sidecar container that watches
+  # the cluster for ConfigMaps carrying `grafana_dashboard: "1"` and provisions
+  # their JSON payload as Grafana dashboards on the fly. Default is OFF; we
+  # enable it so the project-specific dashboards in monitoring/dashboards/
+  # (synced by applications/kube-prometheus-stack-dashboards.yaml) land in
+  # Grafana automatically.
+  #
+  # searchNamespace: ALL means a tenant can later ship their own dashboard
+  # ConfigMap from their tenant namespace without further chart changes; for
+  # now only the two platform dashboards in `monitoring` exist.
+  #
+  # folder: "/tmp/dashboards" is the chart-default mount point for the
+  # sidecar — pinned explicitly so this comment stays self-contained.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folder: /tmp/dashboards
+      provider:
+        foldersFromFilesStructure: false
 
 # --- Alertmanager -----------------------------------------------------------
 # Enabled for completeness; no external receivers wired in academic scope

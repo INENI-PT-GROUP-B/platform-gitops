@@ -1,0 +1,198 @@
+---
+# yamllint disable rule:line-length
+# Embedded JSON inside the `data:` block contains PromQL expressions that
+# exceed 120 chars; JSON string literals cannot be wrapped across YAML lines
+# (a newline inside the quoted value breaks JSON parsing). Splitting them
+# would require recording rules in prometheus values — out of scope here.
+# Grafana dashboard ConfigMap: App-Owner View (S4-02).
+#
+# Namespace-scoped view templated on `$namespace`, so a tenant app owner can
+# pick their own namespace from the variable dropdown and see their app's
+# state. Metrics from kube-state-metrics (Kubernetes API view) and cAdvisor
+# via the kubelet (container resource usage) — neither requires scraping
+# anything inside the tenant namespace, so the S3-03 default-deny ingress
+# stays intact.
+#
+# In-pod metric sources (backend `/metrics`, CloudNativePG PodMonitor) are out
+# of scope here: they require a follow-up that opens a NetworkPolicy hole for
+# the monitoring namespace and ships ServiceMonitors. See Issue #61 § Out of
+# scope.
+#
+# Picked up by Grafana's dashboard sidecar via the `grafana_dashboard: "1"`
+# label (see values/kube-prometheus-stack.yaml § grafana.sidecar.dashboards).
+# The JSON below is the Grafana v11 dashboard model — hand-authored small so a
+# future reviewer can read the diff; not exported from a live Grafana.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-app-owner
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  app-owner.json: |-
+    {
+      "annotations": {"list": []},
+      "editable": false,
+      "graphTooltip": 0,
+      "schemaVersion": 39,
+      "tags": ["app-owner", "tenant", "s4-02"],
+      "time": {"from": "now-1h", "to": "now"},
+      "timezone": "",
+      "title": "App Owner — Namespace View",
+      "uid": "app-owner",
+      "version": 1,
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": "label_values(kube_namespace_created, namespace)",
+            "refresh": 1,
+            "includeAll": false,
+            "multi": false,
+            "sort": 1
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Pods in namespace",
+          "id": 1,
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+          "targets": [{
+            "refId": "A",
+            "expr": "count(kube_pod_info{namespace=\"$namespace\"})"
+          }]
+        },
+        {
+          "type": "stat",
+          "title": "Total restarts (lifetime)",
+          "id": 2,
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"$namespace\"})"
+          }]
+        },
+        {
+          "type": "stat",
+          "title": "CPU used (cores)",
+          "id": 3,
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container!=\"\"}[5m]))"
+          }]
+        },
+        {
+          "type": "stat",
+          "title": "Memory used",
+          "id": 4,
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum(container_memory_working_set_bytes{namespace=\"$namespace\",container!=\"\"})"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Pod restart count by pod",
+          "id": 5,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=\"$namespace\"})",
+            "legendFormat": "{{pod}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Pod phase distribution",
+          "id": 6,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum by (phase) (kube_pod_status_phase{namespace=\"$namespace\"})",
+            "legendFormat": "{{phase}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Container CPU usage per pod",
+          "id": 7,
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 2, "min": 0}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container!=\"\"}[5m]))",
+            "legendFormat": "{{pod}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Container memory working set per pod",
+          "id": 8,
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "bytes", "min": 0}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"$namespace\",container!=\"\"})",
+            "legendFormat": "{{pod}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "ResourceQuota utilisation (used / hard)",
+          "id": 9,
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "kube_resourcequota{namespace=\"$namespace\",type=\"used\"} / on (namespace, resource) kube_resourcequota{namespace=\"$namespace\",type=\"hard\"}",
+            "legendFormat": "{{resource}}"
+          }]
+        },
+        {
+          "type": "timeseries",
+          "title": "PVC usage (used / capacity)",
+          "id": 10,
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{
+            "refId": "A",
+            "expr": "kubelet_volume_stats_used_bytes{namespace=\"$namespace\"} / kubelet_volume_stats_capacity_bytes{namespace=\"$namespace\"}",
+            "legendFormat": "{{persistentvolumeclaim}}"
+          }]
+        }
+      ]
+    }

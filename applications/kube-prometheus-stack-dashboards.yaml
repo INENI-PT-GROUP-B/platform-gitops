@@ -1,0 +1,49 @@
+---
+# Argo CD Application syncing the Grafana dashboard ConfigMaps under
+# monitoring/dashboards/ (S4-02).
+#
+# Picked up by the root App-of-Apps that watches applications/ (S2-02). The
+# ConfigMaps depend on the `monitoring` namespace (created by the
+# kube-prometheus-stack install Application). CreateNamespace + retry +
+# selfHeal let this app converge regardless of sync order; ServerSideApply
+# keeps field ownership clean across re-syncs.
+#
+# Kept separate from the kube-prometheus-stack chart-install Application so
+# dashboard churn doesn't gate the monitoring stack install, and so a dashboard
+# bump is a single small PR rather than a chart-value diff.
+#
+# Same pattern as applications/kube-prometheus-stack-secrets.yaml. The
+# ConfigMaps in monitoring/dashboards/ are then picked up by Grafana's
+# dashboard sidecar (values/kube-prometheus-stack.yaml § grafana.sidecar)
+# via the `grafana_dashboard: "1"` label.
+#
+# namespace (argocd), project (default) and repoURL must match the root
+# App-of-Apps configured by the bootstrap (S2-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack-dashboards
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/INENI-PT-GROUP-B/platform-gitops.git
+    targetRevision: main
+    path: monitoring/dashboards
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
