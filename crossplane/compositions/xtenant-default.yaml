@@ -15,6 +15,12 @@
 #     egress with DNS allow to kube-system, permissive in-namespace app ↔ DB
 #     on TCP 5432, and allow ingress from the traefik namespace to app pods
 #     on TCP 80 / 3000.
+#   - S3-04 CloudNativePG Cluster (per tenant): a single-instance
+#     postgresql.cnpg.io/v1 Cluster named `<spec.name>-cluster` in
+#     tenant-<spec.name>. CNPG auto-generates the `<spec.name>-cluster-app`
+#     credentials Secret (key `uri`), which the S3-06 Release wires into the
+#     backend's DATABASE_URL. Backups are deferred — see the Resource 16
+#     comment.
 #   - S3-05 BasicAuth + GHCR pull: ESO Password generator + Sprig htpasswd
 #     ExternalSecret (crossplane-system) → Crossplane Secret + SecretVersion
 #     via provider-gcp-secretmanager (GSM `tenant-<spec.name>-basicauth-htpasswd`)
@@ -806,10 +812,10 @@ spec:
     #
     # Database: the chart consumes `db.secretName`, which points at the
     # CloudNativePG-generated credentials Secret next to the tenant `Cluster`.
-    # The CNPG Cluster itself is provisioned by S3-04 (a future Resource
-    # appended to this same file). Until S3-04 lands the Release will sit in
-    # a transient "secret not found" state — expected and self-healing once
-    # the DB Composition is in place.
+    # The CNPG Cluster itself is provisioned by S3-04 (Resource 16 below). On
+    # first reconcile the Release may briefly sit in a "secret not found"
+    # state until CNPG materialises `<name>-cluster-app` — expected and
+    # self-healing.
     - name: helm-release
       base:
         apiVersion: helm.crossplane.io/v1beta1
@@ -938,3 +944,94 @@ spec:
           toFieldPath: spec.forProvider.set[3].value
           policy:
             fromFieldPath: Optional
+
+    # -----------------------------------------------------------------------
+    # 16. CloudNativePG Cluster — per-tenant PostgreSQL (S3-04)
+    # -----------------------------------------------------------------------
+    # Single-instance Postgres for the tenant app. The Cluster lives in
+    # namespace `tenant-<name>`, but its NAME resolves to `<spec.name>-cluster`
+    # (no `tenant-` prefix). This is a hard cross-task contract: CNPG derives
+    # the app-user credentials Secret as `<clusterName>-app`, and the S3-06
+    # Helm Release (Resource 15, #47) patches `db.secretName` to
+    # `<spec.name>-cluster-app`. Naming the Cluster `tenant-<name>-cluster`
+    # would silently break the backend's DB credential lookup. Hence
+    # `fmt: "%s-cluster"` on the name, not the `tenant-%s` used by the
+    # namespace-scoped resources above.
+    #
+    # The default initdb bootstrap creates database `app` owned by role `app`
+    # and generates the `<name>-cluster-app` Secret. That Secret carries a
+    # ready-made `uri` key (a full postgresql:// connection string); the
+    # chart's backend Deployment reads `DATABASE_URL` from it via
+    # `db.urlKey: uri` (app-backend/chart/values.yaml) — no URL assembly is
+    # needed on either side.
+    #
+    # Resources are set explicitly, not inherited: the namespace ResourceQuota
+    # forces requests/limits, and without this block the LimitRange (Resource
+    # 3) would inject the small-tier 256Mi container default — too tight for
+    # Postgres and OOM-prone under load. 512Mi/500m equals the small-tier
+    # per-container max and stays within the medium max too, so no tier-map
+    # patch is needed; the aggregate (CNPG + backend + frontend) fits the
+    # small quota's 2Gi / 2cpu.
+    #
+    # Storage: 8Gi on `premium-rwo` (GKE SSD) — within the small tier's
+    # requests.storage (10Gi) / persistentvolumeclaims (2) quota.
+    #
+    # Lifecycle: the Object keeps the default deletionPolicy (Delete), so
+    # deleting the XR tears down the Cluster, its PVC and the data — the
+    # intended behaviour for ephemeral tenants (it follows the namespace
+    # away). Unlike the Orphan'd GSM entries, tenant DB data is NOT preserved
+    # across an XR delete + recreate; relevant to the recovery drills in
+    # INENI-PT-GROUP-B/platform-gitops#64 / #65.
+    #
+    # TODO(S3-04 backups — deferred, tracked in platform-gitops#67): the
+    # Barman object-store `backup:` stanza (→ gs://<project>-
+    # pg-backups/<tenant>/) and its Workload-Identity write credential are
+    # intentionally omitted. With only `provider-gcp-secretmanager` installed
+    # there is no GCP storage/IAM provider to mint a per-tenant bucket IAM
+    # binding without a static SA-JSON key; resolving that auth path is its
+    # own task. Adding backups later changes neither the Cluster name nor the
+    # storage below, and the matching DB-pod → GCS egress NetworkPolicy lands
+    # with it (see Resource 5's note).
+    - name: cnpg-cluster
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                # patched from spec.name → "<name>-cluster"
+                name: ""
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                instances: 1
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    cpu: 500m
+                    memory: 512Mi
+                storage:
+                  size: 8Gi
+                  storageClass: premium-rwo
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cluster"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
