@@ -154,7 +154,7 @@ jobs:
       #                               Helm Release composition (S3-06), core/v1 schema
       #   monitoring/               — ESO ExternalSecret for Grafana admin (S4-01), schema from datreeio catalog
       #   monitoring/dashboards/    — Grafana dashboard ConfigMaps (S4-02), core/v1 schema
-      #   tenants/                  — XR claims (XTenant), schema added in Sprint 3
+      #   tenants/                  — XTenant claims (Kind `Tenant`), Kind skipped (XRD-derived schema not in catalog)
       #   traefik/                  — wildcard Certificate (S2-06), schema from datreeio catalog
       - name: Run kubeconform
         run: |
@@ -204,10 +204,16 @@ jobs:
           # § Crossplane version), so validation would reject our `resources[]` field.
           # Bump the catalog SHA to a version that still ships v1 schemas, or skip;
           # skipping for now.
+          # -skip Tenant: the XTenant claim Kind (`Tenant`, defined in our own
+          # crossplane/xrds/xtenant.yaml) is naturally absent from the datreeio catalog.
+          # The XRD-generated CRD lives in the cluster; kubeconform only resolves schemas
+          # from its -schema-location list, not from local XRDs. Skipping keeps the gate
+          # honest for everything else; tenant claims are still validated by the Kubernetes
+          # API server against the XRD-generated CRD at apply time.
           kubeconform \
             -strict \
             -summary \
-            -skip ProviderConfig,Object,Composition \
+            -skip ProviderConfig,Object,Composition,Tenant \
             -kubernetes-version "${KUBE_VERSION}" \
             -schema-location default \
             -schema-location "${catalog_base}/${crd_template}" \
