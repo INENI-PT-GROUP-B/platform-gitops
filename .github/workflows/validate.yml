@@ -20,6 +20,7 @@ on:
       - 'cert-manager/**'
       - 'crossplane/**'
       - 'external-secrets/**'
+      - 'monitoring/**'
       - 'tenants/**'
       - 'traefik/**'
       - 'values/**'
