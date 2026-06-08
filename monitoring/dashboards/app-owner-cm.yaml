@@ -8,7 +8,11 @@
 #
 # Namespace-scoped view templated on `$namespace`, so a tenant app owner can
 # pick their own namespace from the variable dropdown and see their app's
-# state. Metrics from kube-state-metrics (Kubernetes API view) and cAdvisor
+# state. The dropdown is scoped to `tenant-*` namespaces (regex on
+# kube_namespace_created), so only real tenants appear and Grafana auto-selects
+# the first one on load; with no tenant onboarded yet the view is empty by
+# design until the first tenant lands. Metrics from kube-state-metrics
+# (Kubernetes API view) and cAdvisor
 # via the kubelet (container resource usage) — neither requires scraping
 # anything inside the tenant namespace, so the S3-03 default-deny ingress
 # stays intact.
@@ -41,7 +45,7 @@ data:
       "timezone": "",
       "title": "App Owner — Namespace View",
       "uid": "app-owner",
-      "version": 1,
+      "version": 2,
       "templating": {
         "list": [
           {
@@ -49,8 +53,8 @@ data:
             "label": "Namespace",
             "type": "query",
             "datasource": {"type": "prometheus", "uid": "prometheus"},
-            "query": "label_values(kube_namespace_created, namespace)",
-            "refresh": 1,
+            "query": "label_values(kube_namespace_created{namespace=~\"tenant-.*\"}, namespace)",
+            "refresh": 2,
             "includeAll": false,
             "multi": false,
             "sort": 1
