@@ -290,12 +290,22 @@ spec:
                 fmt: "tenant-%s"
 
     # -----------------------------------------------------------------------
-    # 5. NetworkPolicy — default-deny egress + DNS allow to kube-system
+    # 5. NetworkPolicy — default-deny egress + DNS allow + HTTPS allow
     # -----------------------------------------------------------------------
-    # All egress denied except DNS resolution against CoreDNS in kube-system.
-    # Without this allow, in-cluster service discovery (e.g. the CNPG cluster
-    # service hostname) would break. DB pod egress to GCS for CNPG backups
-    # is owned by S3-04 — added there with the correct pod selector.
+    # Egress is default-denied with two explicit allows:
+    # (a) DNS 53 to kube-system for in-cluster service discovery (e.g. the
+    #     CNPG cluster service hostname).
+    # (b) TCP 443 to any destination, primarily for the Kubernetes API
+    #     server which lives on a ClusterIP (default/kubernetes Service)
+    #     not selectable via namespaceSelector. CNPG's initdb pod reads
+    #     its own Cluster CRD during bootstrap and dies on i/o timeout
+    #     without this. Also covers future workloads that need external
+    #     HTTPS access (CNPG → GCS backups in S3-04, GCP APIs, etc.).
+    # Trade-off: tenant pods can reach arbitrary HTTPS endpoints, not
+    # only the API server. Acceptable for soft multi-tenancy per
+    # architecture-decisions.md § Multi-tenancy; an ipBlock rule on the
+    # cluster master CIDR was rejected because the IP is not stable
+    # across bootstrap.sh runs.
     - name: netpol-default-deny-egress-allow-dns
       base:
         apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -325,6 +335,9 @@ spec:
                         port: 53
                       - protocol: TCP
                         port: 53
+                  - ports:
+                      - protocol: TCP
+                        port: 443
       patches:
         - type: FromCompositeFieldPath
           fromFieldPath: spec.name
