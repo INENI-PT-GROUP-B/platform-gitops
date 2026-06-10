@@ -1084,15 +1084,24 @@ spec:
     # across an XR delete + recreate; relevant to the recovery drills in
     # INENI-PT-GROUP-B/platform-gitops#64 / #65.
     #
-    # TODO(S3-04 backups — deferred, tracked in platform-gitops#67): the
-    # Barman object-store `backup:` stanza (→ gs://<project>-
-    # pg-backups/<tenant>/) and its Workload-Identity write credential are
-    # intentionally omitted. With only `provider-gcp-secretmanager` installed
-    # there is no GCP storage/IAM provider to mint a per-tenant bucket IAM
-    # binding without a static SA-JSON key; resolving that auth path is its
-    # own task. Adding backups later changes neither the Cluster name nor the
-    # storage below, and the matching DB-pod → GCS egress NetworkPolicy lands
-    # with it (see Resource 5's note).
+    # Backups (#67): the `backup:` stanza ships Barman base backups + WAL
+    # archiving to gs://dotted-axle-495612-f4-pg-backups/<name>/. The write
+    # credential is Workload Identity Federation *direct resource access*:
+    # `googleCredentials.gkeEnvironment: true` makes Barman use the pod's
+    # ambient ADC, and Resource 17 grants the instance KSA's federated
+    # principal objectAdmin on the bucket — no per-tenant GSA, no
+    # `iam.gke.io/gcp-service-account` annotation, no static key. CNPG names
+    # the instance KSA after the Cluster (`<name>-cluster`), which is the
+    # subject in Resource 17's principal string.
+    # `retentionPolicy: 14d` lets Barman prune its own catalog well before
+    # the bucket's 30-day lifecycle delete (terraform/backup) reaps stragglers;
+    # the lifecycle rule is a cost backstop, not the retention mechanism.
+    # Egress: the GCS HTTPS path is already covered by Resource 5's
+    # TCP-443-anywhere allow (its comment anticipated exactly this).
+    # In-tree Barman support is deprecated upstream (removal slated for CNPG
+    # 1.30; we pin operator 1.29.1 via chart 0.28.2) — the Barman Cloud
+    # CNPG-I plugin migration is out of scope for the project window,
+    # mirroring the Crossplane-2.x pinning decision.
     - name: cnpg-cluster
       base:
         apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -1121,6 +1130,15 @@ spec:
                 storage:
                   size: 8Gi
                   storageClass: premium-rwo
+                backup:
+                  retentionPolicy: "14d"
+                  barmanObjectStore:
+                    # patched from spec.name → "gs://<bucket>/<name>/"
+                    destinationPath: ""
+                    googleCredentials:
+                      gkeEnvironment: true
+                    wal:
+                      compression: gzip
       patches:
         - type: FromCompositeFieldPath
           fromFieldPath: spec.name
@@ -1136,3 +1154,121 @@ spec:
             - type: string
               string:
                 fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.backup.barmanObjectStore.destinationPath
+          transforms:
+            - type: string
+              string:
+                fmt: "gs://dotted-axle-495612-f4-pg-backups/%s/"
+
+    # -----------------------------------------------------------------------
+    # 17. GCS bucket IAM — per-tenant backup write access (#67)
+    # -----------------------------------------------------------------------
+    # Grants the CNPG instance KSA (`tenant-<name>/<name>-cluster`) direct
+    # Workload Identity Federation access to the shared pg-backups bucket —
+    # the `principal://` member names the KSA itself, with no intermediate
+    # GSA and no SA-JSON key. Reconciled by provider-gcp-storage, whose
+    # controller impersonates the crossplane-provider-gcp GSA; that GSA holds
+    # only the pgBackupsBucketIamAdmin custom role on this one bucket
+    # (terraform/backup), so it can edit bindings but never read objects.
+    #
+    # The IAM condition scopes objectAdmin to the tenant's own "<name>/"
+    # prefix. The second clause is required for listing: objects.list is
+    # checked against the *bucket* resource name, so the prefix clause alone
+    # would deny it — `objectListPrefix` admits list calls whose prefix
+    # parameter stays inside the tenant prefix (Barman always lists with its
+    # destination prefix). Default deletionPolicy (Delete): the binding is
+    # removed when the tenant is offboarded; the objects themselves are
+    # Orphan-equivalent (lifecycle reaps them after 30 days).
+    - name: pg-backups-bucket-iam
+      base:
+        apiVersion: storage.gcp.upbound.io/v1beta1
+        kind: BucketIAMMember
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            bucket: dotted-axle-495612-f4-pg-backups
+            role: roles/storage.objectAdmin
+            # member + condition.expression patched from spec.name
+            member: ""
+            condition:
+              - title: tenant-prefix-only
+                description: >-
+                  Limit object access to the tenant's own backup prefix;
+                  allow listing only under that prefix.
+                expression: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.member
+          transforms:
+            - type: string
+              string:
+                fmt: >-
+                  principal://iam.googleapis.com/projects/519758945793/locations/global/workloadIdentityPools/dotted-axle-495612-f4.svc.id.goog/subject/ns/tenant-%[1]s/sa/%[1]s-cluster
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.condition[0].expression
+          transforms:
+            - type: string
+              string:
+                fmt: >-
+                  resource.name.startsWith('projects/_/buckets/dotted-axle-495612-f4-pg-backups/objects/%[1]s/')
+                  || api.getAttribute('storage.googleapis.com/objectListPrefix',
+                  '').startsWith('%[1]s/')
+
+    # -----------------------------------------------------------------------
+    # 18. CNPG ScheduledBackup — daily base backup (#67)
+    # -----------------------------------------------------------------------
+    # Daily base backup at 02:00 UTC (CNPG cron has a seconds field, hence
+    # six entries). `immediate: true` takes the first base backup as soon as
+    # the schedule object lands, so WAL archiving has a base to apply to
+    # without waiting a day. `backupOwnerReference: self` ties Backup objects
+    # to the ScheduledBackup, keeping `kubectl get backups` tidy per tenant.
+    - name: cnpg-scheduled-backup
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: ScheduledBackup
+              metadata:
+                # patched from spec.name → "<name>-cluster-daily"
+                name: ""
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                schedule: "0 0 2 * * *"
+                backupOwnerReference: self
+                immediate: true
+                cluster:
+                  # patched from spec.name → "<name>-cluster"
+                  name: ""
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cluster-daily"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.spec.cluster.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cluster"
