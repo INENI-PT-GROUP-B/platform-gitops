@@ -1,0 +1,32 @@
+---
+# provider-gcp-storage install.
+#
+# Sub-provider of the GCP family that manages Cloud Storage resources. The
+# Composition uses exactly one of its CRDs: `BucketIAMMember`
+# (storage.gcp.upbound.io), which grants each tenant's CNPG instance KSA a
+# prefix-scoped Workload Identity Federation binding on the shared pg-backups
+# bucket (#67). The bucket itself stays Terraform-owned (terraform/backup) —
+# this provider only edits its IAM policy.
+#
+# Version pinned to v2.5.4 to match provider-family-gcp and
+# provider-gcp-secretmanager; family members must move in lockstep.
+#
+# runtimeConfigRef points at the dedicated provider-gcp-storage DRC (not the
+# generic provider-gcp one) — the DRC serviceAccountTemplate is
+# per-Provider-owned (crossplane/crossplane#4552), see the note in
+# crossplane/providers/deployment-runtime-config-gcp-storage.yaml.
+#
+# No manual ClusterRoleBinding, same as provider-gcp-secretmanager: the
+# provider only manages its own storage.gcp.upbound.io managed resources
+# in-cluster, which Crossplane's rbac-manager grants automatically.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-gcp-storage
+spec:
+  package: xpkg.upbound.io/upbound/provider-gcp-storage:v2.5.4
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  revisionHistoryLimit: 1
+  runtimeConfigRef:
+    name: provider-gcp-storage

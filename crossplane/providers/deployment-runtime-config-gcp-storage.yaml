@@ -1,0 +1,28 @@
+---
+# DeploymentRuntimeConfig for provider-gcp-storage.
+#
+# Second GCP sub-provider (after provider-gcp-secretmanager), installed for
+# exactly one job: reconciling the per-tenant `BucketIAMMember` on the
+# pg-backups bucket (xtenant-default Composition, Resource 17, #67).
+#
+# It gets its own DRC because the serviceAccountTemplate is per-Provider-owned
+# (crossplane/crossplane#4552) — sharing the `provider-gcp` DRC would make two
+# provider revisions fight over one ServiceAccount object. It does NOT get its
+# own GSA: the controller impersonates the existing crossplane-provider-gcp
+# GSA via a second Workload Identity binding (platform-iac terraform/iam),
+# because that GSA already carries the only permission this provider needs —
+# the bucket-scoped pgBackupsBucketIamAdmin custom role from terraform/backup.
+# A dedicated GSA would add IaC surface without narrowing any privilege.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-gcp-storage
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-gcp-storage
+      annotations:
+        # Same GSA as the provider-gcp DRC; the Workload Identity binding for
+        # crossplane-system/provider-gcp-storage is created in platform-iac
+        # (terraform/iam). Keep in sync with crossplane_provider_gcp_sa_id.
+        iam.gke.io/gcp-service-account: crossplane-provider-gcp@dotted-axle-495612-f4.iam.gserviceaccount.com
