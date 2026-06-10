@@ -1,0 +1,15 @@
+---
+# Dedicated staging tenant (S3-08). Pins its app version via
+# imageTagOverride so it can receive a new release before the central
+# rollout in values/app-version.yaml — and stays put when the central
+# tags move (verified by the S3-10 rollout test).
+apiVersion: platform.fhuebung.lol/v1alpha1
+kind: Tenant
+metadata:
+  name: staging
+spec:
+  name: staging
+  tier: small
+  imageTagOverride:
+    backend: "v0.1.0"
+    frontend: "v0.1.0"
