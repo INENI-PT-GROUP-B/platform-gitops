@@ -443,6 +443,72 @@ spec:
                 fmt: "tenant-%s"
 
     # -----------------------------------------------------------------------
+    # 7b. NetworkPolicy — CNPG operator probe + GKE metadata-server egress
+    # -----------------------------------------------------------------------
+    # Scoped to the CNPG instance pods via the operator-managed
+    # cnpg.io/cluster label (Exists match — no per-tenant patch needed).
+    # Ingress: the operator in cnpg-system must reach every instance pod
+    # on TCP 8000 (status probe) and 5432 per the CNPG networking docs;
+    # without this every Cluster reports "Instance Status Extraction
+    # Error: HTTP communication issue" and failover orchestration stalls.
+    # Egress: barman-cloud with `gkeEnvironment: true` obtains ADC tokens
+    # and the project id from the GKE metadata server. On Dataplane V2
+    # (pinned via datapath_provider in platform-iac) that means TCP 80 to
+    # 169.254.169.254/32 per Google's Workload Identity guidance (a
+    # Dataplane V1 cluster would need 169.254.169.252/32:988 instead).
+    # The earlier ipBlock rejection (master CIDR, unstable across
+    # bootstraps) does not apply: this is a fixed link-local IP.
+    # Refs platform-gitops#91.
+    - name: netpol-allow-cnpg-operator
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          providerConfigRef:
+            name: default
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: allow-cnpg-operator
+                # patched from spec.name → "tenant-<name>"
+                namespace: ""
+              spec:
+                podSelector:
+                  matchExpressions:
+                    - key: cnpg.io/cluster
+                      operator: Exists
+                policyTypes:
+                  - Ingress
+                  - Egress
+                ingress:
+                  - from:
+                      - namespaceSelector:
+                          matchLabels:
+                            kubernetes.io/metadata.name: cnpg-system
+                    ports:
+                      - protocol: TCP
+                        port: 8000
+                      - protocol: TCP
+                        port: 5432
+                egress:
+                  - to:
+                      - ipBlock:
+                          cidr: 169.254.169.254/32
+                    ports:
+                      - protocol: TCP
+                        port: 80
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "tenant-%s"
+
+    # -----------------------------------------------------------------------
     # 8. Password generator — ESO Password CR in crossplane-system
     # -----------------------------------------------------------------------
     # Config CR consumed by resource 9 via dataFrom.sourceRef. ESO calls the
