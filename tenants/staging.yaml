@@ -11,5 +11,5 @@ spec:
   name: staging
   tier: small
   imageTagOverride:
-    backend: "v0.1.0"
-    frontend: "v0.1.0"
+    backend: "v0.1.1"
+    frontend: "v0.1.1"
