@@ -120,8 +120,10 @@ Deployment back to `1/1` ready; no operator intervention required.
 
 ### Proves
 
-- The Deployment controller spawned a replacement within 1 s
-  (`ContainerCreating` at +1 s).
+- The ReplicaSet controller (`demotenant1-backend-5754bbfff`, owned by
+  the Deployment) spawned a replacement within 1 s (`ContainerCreating`
+  at +1 s) — the pod-template hash stayed the same, so no new
+  ReplicaSet was created, just a `desired=1, actual=0` self-heal.
 - The container reached `Running` after 10 s (image cached on the node).
 - The readiness probe held the new pod out of the Service endpoint set for
   a further 11 s — one full `periodSeconds: 10` cycle plus probe
