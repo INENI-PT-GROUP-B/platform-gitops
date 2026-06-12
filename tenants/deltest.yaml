@@ -1,0 +1,11 @@
+---
+# Throwaway tenant for the S4-03 offboarding validation (#86). Onboarded
+# only to be deleted again: the removal PR exercises and documents the
+# tenant deletion flow. Do not use for demos; expect this claim to vanish.
+apiVersion: platform.fhuebung.lol/v1alpha1
+kind: Tenant
+metadata:
+  name: deltest
+spec:
+  name: deltest
+  tier: small
