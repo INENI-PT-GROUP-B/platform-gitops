@@ -12,7 +12,7 @@
 #
 # Contract: see docs/chart-contract.md. Bumps go through a normal PR.
 chart:
-  version: "0.1.0"
+  version: "0.1.1"
 images:
-  backend: "v0.1.0"
-  frontend: "v0.1.0"
+  backend: "v0.1.1"
+  frontend: "v0.1.1"
