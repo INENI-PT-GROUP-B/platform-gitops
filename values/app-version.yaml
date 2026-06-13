@@ -15,4 +15,4 @@ chart:
   version: "0.1.1"
 images:
   backend: "v0.1.1"
-  frontend: "v0.1.1"
+  frontend: "v0.1.2"
