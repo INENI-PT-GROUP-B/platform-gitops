@@ -1000,7 +1000,7 @@ spec:
               # patched from spec.version when set; falls back to the value
               # baked here, which is bumped in lockstep with
               # values/app-version.yaml.
-              version: "0.1.0"
+              version: "0.1.1"
             values:
               # patched from spec.name (verbatim)
               tenant: ""
