@@ -1091,7 +1091,7 @@ spec:
           transforms:
             - type: string
               string:
-                fmt: "image.backend.tag"
+                fmt: "image.backend.tag%.0s"
         - type: FromCompositeFieldPath
           fromFieldPath: spec.imageTagOverride.backend
           toFieldPath: spec.forProvider.set[2].value
@@ -1105,7 +1105,7 @@ spec:
           transforms:
             - type: string
               string:
-                fmt: "image.frontend.tag"
+                fmt: "image.frontend.tag%.0s"
         - type: FromCompositeFieldPath
           fromFieldPath: spec.imageTagOverride.frontend
           toFieldPath: spec.forProvider.set[3].value
