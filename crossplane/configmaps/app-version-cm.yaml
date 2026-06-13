@@ -28,4 +28,4 @@ data:
   # Must match images.backend in values/app-version.yaml.
   backend: "v0.1.1"
   # Must match images.frontend in values/app-version.yaml.
-  frontend: "v0.1.1"
+  frontend: "v0.1.2"
