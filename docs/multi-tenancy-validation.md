@@ -162,6 +162,112 @@ Only `Max` is tier-mapped (`small: 500m / 512Mi`, `medium: 1 / 1Gi`); `Min`,
 `Default` and `Default Request` stay constant across tiers — by design, per
 `platform/docs/claude/architecture-decisions.md` § Multi-tenancy § Tiering.
 
+## Test 5 — Global app-version rollout
+
+Verifies the central image-tag rollout from S3-10 (#40): bumping
+`values/app-version.yaml` rolls every tenant without
+`spec.imageTagOverride` to the new tags, while tenants with an override
+stay gated by the claim. Captured around the v0.1.1 → v0.1.2 frontend
+cycle on 2026-06-13. The rollout mechanism is the lockstep across three
+files (`values/app-version.yaml`,
+`crossplane/configmaps/app-version-cm.yaml`,
+`crossplane/compositions/xtenant-default.yaml` Resource 15 chart
+version) — see the file headers and #95/#96 for the history.
+
+### Setup
+
+Four tenants reconciled by Argo CD from `tenants/*.yaml` through the
+`xtenant-default` Composition: `demotenant1`, `demotenant2`,
+`demotenant3` (no override — follow central), and `staging` (gated by
+`spec.imageTagOverride`).
+
+```text
+$ kubectl get xtenants
+NAME                SYNCED   READY   COMPOSITION       AGE
+demotenant1-g2rls   True     True    xtenant-default   5d20h
+demotenant2-n58bt   True     True    xtenant-default   5d20h
+demotenant3-svskk   True     True    xtenant-default   5d19h
+staging-6g8gs       True     True    xtenant-default   4d
+```
+
+The staging claim carries `spec.imageTagOverride.{backend,frontend}`;
+the three demotenant claims do not.
+
+### Procedure
+
+Staging-first, then central — two PRs:
+
+- `platform-gitops#99` — bumped `spec.imageTagOverride.frontend` on
+  the staging claim from v0.1.1 to v0.1.2. Merged 2026-06-13T15:08:24Z.
+- `platform-gitops#102` — bumped `images.frontend` in
+  `values/app-version.yaml` **and** `data.frontend` in
+  `crossplane/configmaps/app-version-cm.yaml` (the lockstep pair).
+  Merged 2026-06-13T15:55:02Z.
+
+Backend was not touched, so the test also covers the partial-bump
+case: only the changed field should propagate.
+
+### Outputs
+
+Central ConfigMap (the value `provider-helm` dereferences when
+rendering each tenant Release):
+
+```text
+$ kubectl get configmap -n crossplane-system tenant-app-defaults \
+    -o yaml | grep -A 2 '^data:'
+data:
+  backend: v0.1.1
+  frontend: v0.1.2
+```
+
+Per-tenant pod images and restart timestamps:
+
+```text
+tenant-demotenant1   backend-...    ghcr.io/.../app-backend:v0.1.1   2026-06-13T13:31:33Z
+tenant-demotenant1   frontend-...   ghcr.io/.../app-frontend:v0.1.2  2026-06-13T16:01:35Z
+tenant-demotenant2   backend-...    ghcr.io/.../app-backend:v0.1.1   2026-06-13T13:31:32Z
+tenant-demotenant2   frontend-...   ghcr.io/.../app-frontend:v0.1.2  2026-06-13T16:01:34Z
+tenant-demotenant3   backend-...    ghcr.io/.../app-backend:v0.1.1   2026-06-13T13:31:32Z
+tenant-demotenant3   frontend-...   ghcr.io/.../app-frontend:v0.1.2  2026-06-13T16:01:34Z
+tenant-staging       backend-...    ghcr.io/.../app-backend:v0.1.1   2026-06-13T13:31:33Z
+tenant-staging       frontend-...   ghcr.io/.../app-frontend:v0.1.2  2026-06-13T15:31:42Z
+```
+
+Helm Releases:
+
+```text
+$ kubectl get release.helm.crossplane.io
+NAME                      ...   CHART       VERSION   STATE      REVISION
+demotenant1-g2rls-pfwgt   ...   app-chart   0.1.1     deployed   4
+demotenant2-n58bt-rtrc2   ...   app-chart   0.1.1     deployed   4
+demotenant3-svskk-t2c7v   ...   app-chart   0.1.1     deployed   4
+staging-6g8gs-f6v9h       ...   app-chart   0.1.1     deployed   6
+```
+
+Argo CD app sync timestamps around the rollout:
+
+```text
+tenants                2026-06-13T15:11:19Z   (picked up #99 staging override)
+tenant-app-defaults    2026-06-13T16:00:06Z   (picked up #102 central bump)
+```
+
+### Proves
+
+- `demotenant1/2/3` (no override) rolled their frontend to v0.1.2
+  within ~6 minutes of the central bump merge: #102 at 15:55:02Z →
+  pods Ready at ~16:01.
+- `staging` (with override) tracked its claim, not the central value:
+  the frontend restart happened on the staging-first PR #99 at 15:31,
+  not on the central PR #102 at 15:55–16:01. The override is driving
+  the version on staging, as designed.
+- Backend stayed at v0.1.1 across all four tenants — only the bumped
+  field propagated. Partial bumps work.
+- The staging Helm Release reached REVISION 6 (vs 4 on the
+  demotenants), reflecting the extra override-bump cycle. The
+  Composition's `imageTagOverride` patch lands as later `set[]`
+  overrides, which is why an override takes precedence over the
+  central ConfigMap value (see Composition Resource 15 comment).
+
 ## Reproducing
 
 The tests are stable across cluster rebuilds because GSM containers carry
