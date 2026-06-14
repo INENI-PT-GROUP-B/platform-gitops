@@ -174,7 +174,7 @@ files (`values/app-version.yaml`,
 `crossplane/compositions/xtenant-default.yaml` Resource 15 chart
 version) — see the file headers and #95/#96 for the history.
 
-### Setup
+### Tenants and overrides
 
 Four tenants reconciled by Argo CD from `tenants/*.yaml` through the
 `xtenant-default` Composition: `demotenant1`, `demotenant2`,
