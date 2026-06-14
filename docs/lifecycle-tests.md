@@ -2,8 +2,10 @@
 
 Evidence for the platform's lifecycle and self-healing behaviour observed
 against the running cluster. Tests in this file exercise single-component
-recovery (S4-04a backend crash), full-cluster rebuild (S4-04b), and tenant
-deletion (S4-03). Isolation, quota, and tier evidence is in
+recovery (S4-04a backend crash) and full-cluster rebuild (S4-04b). Tenant
+deletion (S4-03) is documented separately in
+[`tenant-offboarding-validation.md`](./tenant-offboarding-validation.md).
+Isolation, quota, and tier evidence is in
 [`multi-tenancy-validation.md`](./multi-tenancy-validation.md).
 
 All outputs in this document are verbatim from the live cluster on the date
