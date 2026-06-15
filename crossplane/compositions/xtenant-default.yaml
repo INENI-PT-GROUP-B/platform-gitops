@@ -784,8 +784,22 @@ spec:
     # -----------------------------------------------------------------------
     # Pulls the htpasswd from GSM into a K8s Secret in the tenant namespace.
     # Key `users` (Traefik's BasicAuth Middleware contract); referenced by
-    # resource 14. Refresh hourly so a tenant-side password rotation (manual
-    # GSM update) propagates without intervention.
+    # resource 14.
+    #
+    # `refreshInterval: 5m` is the chosen fix for #107 (option A): the
+    # tenant-NS ExternalSecret and the Crossplane SecretVersion that writes
+    # the freshly bcrypted htpasswd to GSM reconcile in parallel with no
+    # ordering guarantee. On cluster rebuild, ESO can read `:latest` from
+    # GSM before Crossplane has written the new version, so this Secret
+    # initially carries the orphan'd (pre-teardown) hash. The 5-minute
+    # refresh keeps the catch-up window short — operators handing the new
+    # GSM plaintext to a tenant owner see it accepted by Traefik within
+    # five minutes of the rebuild, vs. up to 60 with the old 1h value.
+    # See `platform-gitops#107` for the issue and the longer-term
+    # ordering-fix options (dependsOn / forceSync) that would eliminate
+    # the window entirely. Refresh also lets tenant-side password
+    # rotations (manual GSM update) propagate without intervention,
+    # which was the original 1h rationale.
     - name: basicauth-externalsecret
       base:
         apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -802,7 +816,7 @@ spec:
                 # patched from spec.name → "tenant-<name>"
                 namespace: ""
               spec:
-                refreshInterval: 1h
+                refreshInterval: 5m
                 secretStoreRef:
                   kind: ClusterSecretStore
                   name: gcp-secret-manager
