@@ -83,11 +83,11 @@ Scale Argo CD to zero, delete the LB-watched resources, wait one
 ExternalDNS poll cycle:
 
 ```text
-$ kubectl -n argocd scale deploy --all --replicas=0
-$ kubectl -n argocd scale statefulset argocd-application-controller --replicas=0
-$ kubectl -n argocd delete ingress argocd-server
-$ kubectl -n traefik delete svc traefik
-$ sleep 75 && gcloud dns record-sets list --zone=platform-zone ...
+kubectl -n argocd scale deploy --all --replicas=0
+kubectl -n argocd scale statefulset argocd-application-controller --replicas=0
+kubectl -n argocd delete ingress argocd-server
+kubectl -n traefik delete svc traefik
+sleep 75 && gcloud dns record-sets list --zone=platform-zone ...
 ```
 
 After that block alone the `*.fhuebung.lol` and `argocd.fhuebung.lol`
@@ -97,12 +97,12 @@ than ExternalDNS could prune). For a clean DNS state the run extended
 Phase A with one more block (Finding F1):
 
 ```text
-$ kubectl -n crossplane-system scale deploy \
-    provider-helm-* provider-kubernetes-* --replicas=0
-$ for ns in tenant-demotenant{1,2,3} tenant-staging monitoring; do
-    kubectl -n $ns delete ingress --all
-  done
-$ sleep 75
+kubectl -n crossplane-system scale deploy \
+  provider-helm-* provider-kubernetes-* --replicas=0
+for ns in tenant-demotenant{1,2,3} tenant-staging monitoring; do
+  kubectl -n $ns delete ingress --all
+done
+sleep 75
 ```
 
 After which the zone held only `NS`, `SOA` (and the persistent
@@ -274,7 +274,7 @@ four tenants live, BasicAuth + wildcard TLS verified end-to-end.
 ## Per-phase wallclock
 
 | Phase | TEARDOWN.md (2026-05-30) | This run (2026-06-15) | Drivers of the delta |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | A — drain GitOps state | ~2 min | **6m 01s** | extended ingress + provider scale-down (F1) |
 | B — `terraform destroy` | ~9 min | **~30 min** | one-time IAM + bucket workarounds (F2, F5) |
 | C — cloud hygiene check | <1 min | **~2 min** | five PVC-backed disks to delete (F3) |
@@ -369,7 +369,7 @@ targeted change with a clear acceptance check.
 ## Findings
 
 | ID | Summary | Follow-up |
-|---|---|---|
+| --- | --- | --- |
 | **F1** | TEARDOWN.md Phase A only deletes the argocd-server Ingress + traefik svc; tenant Ingresses + Grafana Ingress + Crossplane providers stay running, leaving five A+TXT records orphan'd | TEARDOWN.md update — separate `platform-iac` PR, `Refs platform-gitops#65` |
 | **F2** | `module.backup.google_storage_bucket.pg_backups` is `force_destroy = false`; a populated bucket blocks `terraform destroy` | `Closes platform-iac#67` |
 | **F3** | Cluster destroy leaves N PVC-backed disks (one per CNPG cluster + one for cluster-wide Prometheus); TEARDOWN.md mentions this abstractly, the gap is the concrete cleanup snippet | TEARDOWN.md update (same PR as F1) |
