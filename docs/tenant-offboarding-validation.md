@@ -110,31 +110,40 @@ behind. The 403 itself is not pursued — deleting the tenant makes it moot.
 
 ## Post-deletion verification
 
-> Captured immediately after the merge + Argo CD prune. Commands run with an
-> explicit `--context` against the GKE cluster.
+> Captured immediately after the merge (#100, squash-merged 2026-06-15
+> 10:56:30Z) and the Argo CD prune. Commands run with an explicit `--context`
+> against the GKE cluster.
 
 Cleanup (expected gone):
 
 ```text
 $ kubectl get ns tenant-deltest
-# <to be captured at merge: expect "not found">
+Error from server (NotFound): namespaces "tenant-deltest" not found
 
 $ kubectl get xtenant | grep deltest
-# <expect: no rows>
+# (no rows — only demotenant1/2/3 and staging composites remain)
 
 $ gcloud dns record-sets list --zone platform-zone --filter="name~deltest"
-# <expect: no A / TXT rows — ExternalDNS removed them>
+Listed 0 items.
 ```
 
 Intentional survivors (expected still present):
 
 ```text
 $ gcloud secrets list --filter="name:deltest" --format="value(name)"
-# <expect: tenant-deltest-basicauth-htpasswd, tenant-deltest-basicauth-password>
+tenant-deltest-basicauth-htpasswd
+tenant-deltest-basicauth-password
 ```
 
-Observed timing: _<teardown duration from prune to namespace removal — filled
-at merge>_.
+Observed timing: Argo CD issued the prune ~1m45s after the merge (namespace
+`deletionTimestamp` 2026-06-15T10:58:14Z); the CNPG `Cluster` pod drained and
+the namespace was fully removed a few minutes later. While it sat in
+`Terminating`, the namespace status conditions already reported all content and
+finalizers cleared (`NamespaceContentRemaining: False`,
+`NamespaceFinalizersRemaining: False`); the residual delay was the standard
+`kubernetes` namespace finalizer, with only the auto-recreated
+`kube-root-ca.crt` ConfigMap and `default` ServiceAccount left — neither blocks
+deletion. No manual intervention was needed.
 
 ## Proves
 
