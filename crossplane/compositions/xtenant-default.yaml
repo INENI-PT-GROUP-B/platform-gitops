@@ -65,6 +65,22 @@ spec:
     apiVersion: platform.fhuebung.lol/v1alpha1
     kind: XTenant
 
+  # The next two fields are CRD defaults injected by the
+  # apiextensions.crossplane.io/v1 admission webhook (mode=Resources,
+  # publishConnectionDetailsWithStoreConfigRef.name=default). They are
+  # spelled out here on purpose so the Git manifest matches the
+  # post-admission live spec exactly. Without this, the field manager
+  # `argocd-controller` ends up owning both fields and removes them on
+  # every SSA reconcile; the webhook re-defaults them on the next
+  # admission pass; the crossplane-compositions Application then flips
+  # back to OutOfSync every reconcile cycle. See platform-gitops#111.
+  # Pairs with the Application-level ignoreDifferences in
+  # applications/crossplane-compositions.yaml — that suppression is the
+  # backstop for future CRD-default additions inside the same block.
+  mode: Resources
+  publishConnectionDetailsWithStoreConfigRef:
+    name: default
+
   resources:
     # -----------------------------------------------------------------------
     # 1. Namespace `tenant-<spec.name>`
