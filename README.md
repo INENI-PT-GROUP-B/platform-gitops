@@ -27,6 +27,12 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 2. Changes merged to `main` are picked up automatically and reconciled.
 3. New tenants are onboarded by adding a claim under `tenants/`. ArgoCD syncs the claim into the cluster, then Crossplane reconciles it against the matching Composition — provisioning the per-tenant resources (namespace, DB, network policies, secrets) and rendering the application's Helm chart via `provider-helm` into the tenant namespace.
 
+## Tenant onboarding
+
+Day-2 tenant provisioning is the primary daily action against this repo. The end-to-end runbook lives at [`docs/tenant-onboarding.md`](docs/tenant-onboarding.md): write a seven-line `XTenant` claim under `tenants/`, open a PR, squash-merge, and Argo CD + Crossplane do the rest (namespace, NetworkPolicies, CloudNativePG cluster, BasicAuth, Helm release via `provider-helm`).
+
+Validation of the model — both isolation between tenants and the full lifecycle including deletion — is recorded in [`docs/multi-tenancy-validation.md`](docs/multi-tenancy-validation.md) and [`docs/lifecycle-tests.md`](docs/lifecycle-tests.md).
+
 ## Validation
 
 Two CI workflows run on every PR:
@@ -68,3 +74,12 @@ Key points:
 
 - No direct commits to `main`, all changes via Pull Request
 - Every PR references an issue
+
+## Related docs
+
+- Platform entry point and cross-cutting documentation: [`INENI-PT-GROUP-B/platform`](https://github.com/INENI-PT-GROUP-B/platform)
+- Day-2 architecture diagram: [`platform/docs/architecture/day2-tenant-provisioning.drawio.png`](https://github.com/INENI-PT-GROUP-B/platform/blob/main/docs/architecture/day2-tenant-provisioning.drawio.png)
+- Day-1 bootstrap (Terraform + `bootstrap.sh`): [`INENI-PT-GROUP-B/platform-iac`](https://github.com/INENI-PT-GROUP-B/platform-iac)
+- Chart contract for tenant apps: [`docs/chart-contract.md`](docs/chart-contract.md)
+- Per-tenant offboarding evidence: [`docs/tenant-offboarding-validation.md`](docs/tenant-offboarding-validation.md)
+- Cluster redeploy validation: [`docs/cluster-redeploy-validation.md`](docs/cluster-redeploy-validation.md)
