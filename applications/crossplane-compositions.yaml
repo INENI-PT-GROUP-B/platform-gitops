@@ -46,3 +46,27 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+      # Pairs with spec.ignoreDifferences below — without this option the
+      # auto-sync engine ignores ignoreDifferences and keeps re-applying the
+      # suppressed fields. Keep both together (see #111).
+      - RespectIgnoreDifferences=true
+  # Suppress CRD-default drift on the lone managed Composition
+  # `xtenant-default`. The apiextensions.crossplane.io/v1 admission webhook
+  # defaults two top-level spec fields server-side; the Git manifest does not
+  # set them, so Argo CD's Git-vs-live differ flags them on every reconcile
+  # and the Application stays OutOfSync forever (autoHealAttemptsCount hit
+  # its hard limit on the live cluster). ServerSideApply=true does not help
+  # here — the drift is applied-config vs effective-spec, not field-ownership.
+  # Paired with RespectIgnoreDifferences=true in syncOptions above; do not
+  # remove either half without re-reading #111. Composition is cluster-scoped,
+  # so no namespace selector. The publishConnectionDetailsWithStoreConfigRef
+  # pointer suppresses the entire block (not just .name) on purpose: Git sets
+  # nothing under it, everything is CRD-default, and this survives future
+  # default additions inside the same block without another patch.
+  ignoreDifferences:
+    - group: apiextensions.crossplane.io
+      kind: Composition
+      name: xtenant-default
+      jsonPointers:
+        - /spec/mode
+        - /spec/publishConnectionDetailsWithStoreConfigRef
