@@ -65,21 +65,12 @@ spec:
     apiVersion: platform.fhuebung.lol/v1alpha1
     kind: XTenant
 
-  # The next two fields are CRD defaults injected by the
-  # apiextensions.crossplane.io/v1 admission webhook (mode=Resources,
-  # publishConnectionDetailsWithStoreConfigRef.name=default). They are
-  # spelled out here on purpose so the Git manifest matches the
-  # post-admission live spec exactly. Without this, the field manager
-  # `argocd-controller` ends up owning both fields and removes them on
-  # every SSA reconcile; the webhook re-defaults them on the next
-  # admission pass; the crossplane-compositions Application then flips
-  # back to OutOfSync every reconcile cycle. See platform-gitops#111.
-  # Pairs with the Application-level ignoreDifferences in
-  # applications/crossplane-compositions.yaml — that suppression is the
-  # backstop for future CRD-default additions inside the same block.
-  mode: Resources
-  publishConnectionDetailsWithStoreConfigRef:
-    name: default
+  # spec.mode and spec.publishConnectionDetailsWithStoreConfigRef are intentionally
+  # left unset: the kube-apiserver defaults them from the CRD OpenAPI schema
+  # (mode=Resources, publishConnectionDetailsWithStoreConfigRef.name=default), and
+  # the crossplane-compositions Application uses ServerSideDiff, so those defaults
+  # (and the per-resource readinessChecks / patches[].transforms[].string.type
+  # defaults) are not flagged as drift. See platform-gitops#111 (supersedes #114).
 
   resources:
     # -----------------------------------------------------------------------
