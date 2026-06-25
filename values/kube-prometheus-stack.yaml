@@ -58,12 +58,17 @@ grafana:
     tls:
       - hosts:
           - grafana.fhuebung.lol
+  # Memory bumped from 128Mi/256Mi: the 256Mi limit OOMKilled Grafana
+  # (exit 137) under dashboard-sidecar rendering plus dashboard load on
+  # 2026-06-25, dropping the host behind Traefik ("no available server").
+  # 512Mi gives headroom for concurrent panels at a 5s refresh while still
+  # bounding the OOM blast radius, per this file's memory-limit convention.
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
-    limits:
       memory: 256Mi
+    limits:
+      memory: 512Mi
   # Admin credentials come from a Secret, never plaintext here (no-secrets rule,
   # CONTRIBUTING.md § Secrets). The chart default `admin/prom-operator` is
   # unacceptable for an internet-exposed host. The Secret `grafana-admin-credentials`
