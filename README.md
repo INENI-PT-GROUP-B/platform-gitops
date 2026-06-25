@@ -29,7 +29,7 @@ Contains ArgoCD applications, Crossplane manifests, tenant claims, and platform 
 
 ## Tenant onboarding
 
-Day-2 tenant provisioning is the primary daily action against this repo. The end-to-end runbook lives at [`docs/tenant-onboarding.md`](docs/tenant-onboarding.md): write a seven-line `XTenant` claim under `tenants/`, open a PR, squash-merge, and Argo CD + Crossplane do the rest (namespace, NetworkPolicies, CloudNativePG cluster, BasicAuth, Helm release via `provider-helm`).
+Day-2 tenant provisioning is the primary daily action against this repo. The end-to-end runbook lives at [`docs/tenant-onboarding.md`](docs/tenant-onboarding.md): write a seven-line `Tenant` claim under `tenants/`, open a PR, squash-merge, and Argo CD + Crossplane do the rest (namespace, NetworkPolicies, CloudNativePG cluster, BasicAuth, Helm release via `provider-helm`). `Tenant` is the namespaced claim users apply; Crossplane composes it into the cluster-scoped `XTenant` composite under the hood.
 
 Validation of the model — both isolation between tenants and the full lifecycle including deletion — is recorded in [`docs/multi-tenancy-validation.md`](docs/multi-tenancy-validation.md) and [`docs/lifecycle-tests.md`](docs/lifecycle-tests.md).
 
