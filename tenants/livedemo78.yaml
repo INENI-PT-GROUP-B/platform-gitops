@@ -1,0 +1,11 @@
+---
+apiVersion: platform.fhuebung.lol/v1alpha1
+kind: Tenant
+metadata:
+  name: livedemo78
+spec:
+  name: livedemo78
+  tier: small
+  imageTagOverride:
+    backend: "v0.1.1"
+    frontend: "v0.1.1"
