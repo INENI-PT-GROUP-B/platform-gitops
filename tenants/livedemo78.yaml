@@ -1,0 +1,8 @@
+---
+apiVersion: platform.fhuebung.lol/v1alpha1
+kind: Tenant
+metadata:
+  name: livedemo78
+spec:
+  name: livedemo78
+  tier: small
